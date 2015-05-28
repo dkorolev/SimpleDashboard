@@ -3,14 +3,20 @@
 ### Architecture
 
 1. API: CTFO server => app.
+
    Requesting and updating cards and their metadata, user status and notifications.
+
    Two-way handshake: app -> backend API -> app.
+
    The app owns the request and acts on the response being received. Generally, at most one request is active at a time.
 
 
 2. Analytics: App => { CTFO server, GA/Mixpanel servers }
+
    Structured reporting of user activity.
+
    One-way upload: app -> analytics API.
+
    CTFO backend is powered by our platform, <href>Current</href>. To upload events, we have an Objective-C library mirroring the interface of Mixpanel / Google Analytics.
 
 On the app side, API and analytics can be thought of as two different backends.
