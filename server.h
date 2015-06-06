@@ -46,7 +46,9 @@ class CTFOServer {
   explicit CTFOServer(int http_port, int rand_seed)
       : http_port_(http_port),
         rng_(rand_seed),
-        random_uint64_(std::bind(std::uniform_int_distribution<uint64_t>(0, -1ll), rng_)),
+        random_uid_(std::bind(std::uniform_int_distribution<uint64_t>(1000000000000000000ull, 1999999999999999999ull), rng_)),
+        random_cid_(std::bind(std::uniform_int_distribution<uint64_t>(2000000000000000000ull, 2999999999999999999ull), rng_)),
+        random_token_(std::bind(std::uniform_int_distribution<uint64_t>(3000000000000000000ull, 3999999999999999999ull), rng_)),
         random_0_1_picker_(std::bind(std::uniform_real_distribution<double>(0.0, 1.0), rng_)),
         random_10_99_picker_(std::bind(std::uniform_int_distribution<int>(10, 99), rng_)),
         storage_("CTFO storage"),
@@ -55,11 +57,11 @@ class CTFOServer {
     assert(cards_[0] == "ZERO_INDEX_SHOULD_BE_KEPT_UNUSED");
 
     storage_.Transaction([this](StorageAPI::T_DATA data) {
-      for (const auto text : cards_) {
+      for (const auto& text : cards_) {
         CID cid;
         do {
           cid = RandomCID();
-        } while (data.Get(cid));
+        } while (data.Has(cid));
         Card card(cid, text);
         card.ctfo_count = random_10_99_picker_();
         card.tfu_count = random_10_99_picker_();
@@ -84,7 +86,8 @@ class CTFOServer {
               // Searching for users with provided device ID.
               storage_.Transaction([&](StorageAPI::T_DATA data) {
                                      const auto accessor = MatrixEntry<DeviceIdUIDPair>::Accessor(data);
-                                     if (accessor.Rows().has(device_id)) {
+                                     if (accessor.Rows().Has(device_id)) {
+                                       // Something went terribly wrong, if we have more than one UID for the device ID.
                                        assert(accessor[device_id].size() == 1);
                                        uid = accessor[device_id].begin()->uid;
                                      }
@@ -95,8 +98,7 @@ class CTFOServer {
                 storage_.Transaction([&](StorageAPI::T_DATA data) {
                                        auto mutator = MatrixEntry<UIDTokenPair>::Mutator(data);
                                        for (const auto& uid_token : mutator[uid]) {
-                                         UIDTokenPair invalid_token(uid_token.uid, uid_token.token, false);
-                                         mutator.Add(invalid_token);
+                                         mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
                                        }
                                        user = data.Get(uid);
                                      }).Go();
@@ -108,10 +110,10 @@ class CTFOServer {
               }
 
               CopyUserInfoToResponseEntry(user, user_entry);
-              // Generating a new token.
+              // Generate a new token.
               const std::string token = RandomToken();
               user_entry.token = token;
-              storage_.Add(UIDTokenPair(uid, token)).Go();
+              storage_.Add(UIDTokenPair(uid, token, true)).Go();
 
               RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")),
                               std::move(r));
@@ -143,11 +145,11 @@ class CTFOServer {
             }
           }
         });
-  }  // CTFOServer(...)
+  }
 
   void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
     storage_.Transaction(
-        [&, user_entry, max_count](StorageAPI::T_DATA data) {
+        [this, user_entry, max_count](StorageAPI::T_DATA data) {
           ResponseFeed response;
           response.user = user_entry;
 
@@ -190,7 +192,9 @@ class CTFOServer {
  private:
   const int http_port_;
   std::mt19937_64 rng_;
-  std::function<uint64_t()> random_uint64_;
+  std::function<uint64_t()> random_uid_;
+  std::function<uint64_t()> random_cid_;
+  std::function<uint64_t()> random_token_;
   std::function<double()> random_0_1_picker_;
   std::function<int()> random_10_99_picker_;
 
@@ -205,13 +209,9 @@ class CTFOServer {
   const std::map<std::string, ANSWER> valid_answers_ = {
       {"ctfo", ANSWER::CTFO}, {"tfu", ANSWER::TFU}, {"tifb", ANSWER::TIFB}};
 
-  UID RandomUID() { return static_cast<UID>(random_uint64_() % 1000000000000000000 + 1000000000000000000); }
-
-  CID RandomCID() { return static_cast<CID>(random_uint64_() % 1000000000000000000 + 2000000000000000000); }
-
-  std::string RandomToken() {
-    return bricks::strings::Printf("t%020llu", random_uint64_() % 1000000000000000000 + 3000000000000000000);
-  }
+  UID RandomUID() { return static_cast<UID>(random_uid_()); }
+  CID RandomCID() { return static_cast<CID>(random_cid_()); }
+  std::string RandomToken() { return bricks::strings::Printf("t%020llu", random_token_()); }
 
   std::string UIDToString(UID uid) { return bricks::strings::Printf("u%020llu", static_cast<uint64_t>(uid)); }
 

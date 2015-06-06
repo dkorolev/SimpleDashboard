@@ -1,8 +1,8 @@
 /*******************************************************************************
 The MIT License (MIT)
 
-Copyright (c) 2015 Dmitry "Dima" Korolev <dmitry.korolev@gmail.com>
-          (c) 2015 Maxim Zhurovich <zhurovich@gmail.com>
+Copyright (c) 2015 Maxim Zhurovich <zhurovich@gmail.com>
+          (c) 2015 Dmitry "Dima" Korolev <dmitry.korolev@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33,13 +33,12 @@ SOFTWARE.
 #include "../Current/Sherlock/yoda/yoda.h"
 
 // Data structures for internal storage.
-
 enum class UID : uint64_t { INVALID = 0u };
 enum class CID : uint64_t { INVALID = 0u };
 enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, TIFB = -1 };
 
 struct User : yoda::Padawan {
-  UID uid;
+  UID uid = UID::INVALID;
   uint64_t score = 0u;
 
   UID key() const { return uid; }
@@ -55,16 +54,16 @@ struct User : yoda::Padawan {
 struct UIDTokenPair : yoda::Padawan {
   UID uid = UID::INVALID;
   std::string token = "";
-  bool valid = true;
+  bool valid = false;
 
   UIDTokenPair() = default;
   UIDTokenPair(const UIDTokenPair&) = default;
-  UIDTokenPair(UID uid, const std::string& token, bool valid = true) : uid(uid), token(token), valid(valid) {}
+  UIDTokenPair(UID uid, const std::string& token, bool valid = false) : uid(uid), token(token), valid(valid) {}
 
   UID row() const { return uid; }
   void set_row(UID value) { uid = value; }
   const std::string& col() const { return token; }
-  void set_col(std::string value) { token = value; }
+  void set_col(const std::string& value) { token = value; }
 
   template <typename A>
   void serialize(A& ar) {
@@ -75,7 +74,7 @@ struct UIDTokenPair : yoda::Padawan {
 
 struct DeviceIdUIDPair : yoda::Padawan {
   std::string device_id = "";
-  UID uid;
+  UID uid = UID::INVALID;
 
   const std::string& row() const { return device_id; }
   void set_row(const std::string& value) { device_id = value; }
@@ -133,11 +132,10 @@ struct Answer : yoda::Padawan {
 };
 
 // Data structures for generating RESTful response.
-
 struct ResponseUserEntry {
   std::string uid = "uINVALID";  // User id, format 'u01XXX...'.
-  std::string token;             // User token.
-  uint64_t score;                // User score.
+  std::string token = "";        // User token.
+  uint64_t score = 0u;           // User score.
 
   template <typename A>
   void serialize(A& ar) {
@@ -149,7 +147,7 @@ struct ResponseCardEntry {
   std::string cid = "cINVALID";  // Card id, format 'c02XXX...'.
   std::string text = "";         // Card text.
   double relevance = 0.0;        // Card relevance for particular user, [0.0, 1.0].
-  uint64_t score = 0;            // Number of points, which user gets for "right" answer.
+  uint64_t score = 0u;           // Number of points, which user gets for "right" answer.
   double ctfo_percentage = 0.5;  // Percentage of users, who answered "CTFO" for this card.
 
   template <typename A>
