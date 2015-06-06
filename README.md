@@ -17,7 +17,7 @@
 
    One-way upload: app -> analytics API.
 
-   CTFO backend is powered by our platform, <href>Current</href>. To upload events, we have an Objective-C library mirroring the interface of Mixpanel / Google Analytics.
+   CTFO backend is powered by our platform, ['Current'](https://github.com/c5t/Current/). To upload events, we have an Objective-C library mirroring the interface of Mixpanel / Google Analytics.
 
 On the app side, API and analytics can be thought of as two different backends.
 On the server side, the Current platform binds them together.

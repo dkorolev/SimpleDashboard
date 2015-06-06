@@ -1,6 +1,8 @@
+/*******************************************************************************
 The MIT License (MIT)
 
-Copyright (c) 2015 KnowSheet
+Copyright (c) 2015 Maxim Zhurovich <zhurovich@gmail.com>
+          (c) 2015 Dmitry "Dima" Korolev <dmitry.korolev@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,4 +21,22 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+*******************************************************************************/
 
+#include "server.h"
+
+#include "../Current/Bricks/dflags/dflags.h"
+
+CEREAL_REGISTER_TYPE(User);
+CEREAL_REGISTER_TYPE(UIDTokenPair);
+CEREAL_REGISTER_TYPE(DeviceIdUIDPair);
+CEREAL_REGISTER_TYPE(Card);
+CEREAL_REGISTER_TYPE(Answer);
+
+DEFINE_int32(port, 8383, "Port to spawn CTFO backend server on.");
+DEFINE_int32(rand_seed, 42, "The answer to the question of life, universe and everything.");
+
+int main(int argc, char **argv) {
+  ParseDFlags(&argc, &argv);
+  CTFOServer(FLAGS_port, FLAGS_rand_seed).Join();
+}
