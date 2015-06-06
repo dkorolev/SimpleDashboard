@@ -28,9 +28,10 @@ SOFTWARE.
 
 #include <cassert>
 #include <cstdlib>
-#include <vector>
-#include <string>
+#include <functional>
 #include <random>
+#include <string>
+#include <vector>
 
 #include "../Current/Bricks/file/file.h"
 #include "../Current/Bricks/strings/split.h"
@@ -46,14 +47,6 @@ class CTFOServer {
   explicit CTFOServer(int http_port, int rand_seed)
       : http_port_(http_port),
         rng_(rand_seed),
-        random_uid_(std::bind(
-            std::uniform_int_distribution<uint64_t>(1000000000000000000ull, 1999999999999999999ull), rng_)),
-        random_cid_(std::bind(
-            std::uniform_int_distribution<uint64_t>(2000000000000000000ull, 2999999999999999999ull), rng_)),
-        random_token_(std::bind(
-            std::uniform_int_distribution<uint64_t>(3000000000000000000ull, 3999999999999999999ull), rng_)),
-        random_0_1_picker_(std::bind(std::uniform_real_distribution<double>(0.0, 1.0), rng_)),
-        random_10_99_picker_(std::bind(std::uniform_int_distribution<int>(10, 99), rng_)),
         storage_("CTFO storage"),
         cards_(Split<ByLines>(bricks::FileSystem::ReadFileAsString("cards.txt"))) {
     assert(cards_.size() >= 2u);
@@ -192,11 +185,12 @@ class CTFOServer {
  private:
   const int http_port_;
   std::mt19937_64 rng_;
-  std::function<uint64_t()> random_uid_;
-  std::function<uint64_t()> random_cid_;
-  std::function<uint64_t()> random_token_;
-  std::function<double()> random_0_1_picker_;
-  std::function<int()> random_10_99_picker_;
+  static constexpr uint64_t id_range_ = static_cast<uint64_t>(1e18);
+  std::function<uint64_t()> random_uid_ = std::bind(std::uniform_int_distribution<uint64_t>(1 * id_range_, 2 * id_range_ - 1), rng_);
+  std::function<uint64_t()> random_cid_ = std::bind(std::uniform_int_distribution<uint64_t>(2 * id_range_, 3 * id_range_ - 1), rng_);
+  std::function<uint64_t()> random_token_ = std::bind(std::uniform_int_distribution<uint64_t>(3 * id_range_, 4 * id_range_ - 1), rng_);
+  std::function<double()> random_0_1_picker_ = std::bind(std::uniform_real_distribution<double>(0.0, 1.0), rng_);
+  std::function<int()> random_10_99_picker_ = std::bind(std::uniform_int_distribution<int>(10, 99), rng_);
 
   typedef API<Dictionary<User>,
               MatrixEntry<UIDTokenPair>,
