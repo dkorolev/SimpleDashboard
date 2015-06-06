@@ -76,8 +76,8 @@ TEST(CTFO, SmokeTest) {
 
   bricks::time::SetNow(static_cast<bricks::time::EPOCH_MILLISECONDS>(234));
 
-  const auto feed_response = HTTP(
-      GET(Printf("http://localhost:%d/feed?uid=%s&token=%s&feed_count=40", FLAGS_port, golden_uid, golden_token)));
+  const auto feed_response = HTTP(GET(
+      Printf("http://localhost:%d/feed?uid=%s&token=%s&feed_count=40", FLAGS_port, golden_uid, golden_token)));
   EXPECT_EQ(200, static_cast<int>(feed_response.code));
   feed = ParseJSON<ResponseFeed>(feed_response.body);
   EXPECT_EQ(234u, feed.ts);

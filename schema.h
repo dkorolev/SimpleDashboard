@@ -105,7 +105,10 @@ struct Card : yoda::Padawan {
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(cid), CEREAL_NVP(text), CEREAL_NVP(ctfo_count), CEREAL_NVP(tfu_count),
+    ar(CEREAL_NVP(cid),
+       CEREAL_NVP(text),
+       CEREAL_NVP(ctfo_count),
+       CEREAL_NVP(tfu_count),
        CEREAL_NVP(tifb_count));
   }
 };
@@ -152,7 +155,10 @@ struct ResponseCardEntry {
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(cid), CEREAL_NVP(text), CEREAL_NVP(relevance), CEREAL_NVP(score),
+    ar(CEREAL_NVP(cid),
+       CEREAL_NVP(text),
+       CEREAL_NVP(relevance),
+       CEREAL_NVP(score),
        CEREAL_NVP(ctfo_percentage));
   }
 };

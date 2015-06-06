@@ -46,9 +46,12 @@ class CTFOServer {
   explicit CTFOServer(int http_port, int rand_seed)
       : http_port_(http_port),
         rng_(rand_seed),
-        random_uid_(std::bind(std::uniform_int_distribution<uint64_t>(1000000000000000000ull, 1999999999999999999ull), rng_)),
-        random_cid_(std::bind(std::uniform_int_distribution<uint64_t>(2000000000000000000ull, 2999999999999999999ull), rng_)),
-        random_token_(std::bind(std::uniform_int_distribution<uint64_t>(3000000000000000000ull, 3999999999999999999ull), rng_)),
+        random_uid_(std::bind(
+            std::uniform_int_distribution<uint64_t>(1000000000000000000ull, 1999999999999999999ull), rng_)),
+        random_cid_(std::bind(
+            std::uniform_int_distribution<uint64_t>(2000000000000000000ull, 2999999999999999999ull), rng_)),
+        random_token_(std::bind(
+            std::uniform_int_distribution<uint64_t>(3000000000000000000ull, 3999999999999999999ull), rng_)),
         random_0_1_picker_(std::bind(std::uniform_real_distribution<double>(0.0, 1.0), rng_)),
         random_10_99_picker_(std::bind(std::uniform_int_distribution<int>(10, 99), rng_)),
         storage_("CTFO storage"),
@@ -70,81 +73,78 @@ class CTFOServer {
       }
     });
 
-    HTTP(http_port_)
-        .Register("/auth/browser", [this](Request r) {
-          if (r.method != "POST") {
-            r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
-          } else {
-            const std::string device_id = r.url.query.get("device_id", "");
-            if (device_id.empty()) {
-              r("NEED VALID DEVICE ID\n", HTTPResponseCode.BadRequest);
-            } else {
-              UID uid = UID::INVALID;
-              User user;
-              ResponseUserEntry user_entry;
+    HTTP(http_port_).Register("/auth/browser", [this](Request r) {
+      if (r.method != "POST") {
+        r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
+      } else {
+        const std::string device_id = r.url.query.get("device_id", "");
+        if (device_id.empty()) {
+          r("NEED VALID DEVICE ID\n", HTTPResponseCode.BadRequest);
+        } else {
+          UID uid = UID::INVALID;
+          User user;
+          ResponseUserEntry user_entry;
 
-              // Searching for users with provided device ID.
-              storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                     const auto accessor = MatrixEntry<DeviceIdUIDPair>::Accessor(data);
-                                     if (accessor.Rows().Has(device_id)) {
-                                       // Something went terribly wrong, if we have more than one UID for the device ID.
-                                       assert(accessor[device_id].size() == 1);
-                                       uid = accessor[device_id].begin()->uid;
-                                     }
-                                   }).Go();
+          // Searching for users with provided device ID.
+          storage_.Transaction([&](StorageAPI::T_DATA data) {
+                                 const auto accessor = MatrixEntry<DeviceIdUIDPair>::Accessor(data);
+                                 if (accessor.Rows().Has(device_id)) {
+                                   // Something went terribly wrong
+                                   // if we have more than one UID for the device ID.
+                                   assert(accessor[device_id].size() == 1);
+                                   uid = accessor[device_id].begin()->uid;
+                                 }
+                               }).Go();
 
-              if (uid != UID::INVALID) {  // Existing user.
-                // Invalidating all old tokens.
-                storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                       auto mutator = MatrixEntry<UIDTokenPair>::Mutator(data);
-                                       for (const auto& uid_token : mutator[uid]) {
-                                         mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
-                                       }
-                                       user = data.Get(uid);
-                                     }).Go();
-                user_entry.score = user.score;
-              } else {  // New user.
-                uid = RandomUID();
-                user.uid = uid;
-                storage_.Add(user).Go();
-              }
-
-              CopyUserInfoToResponseEntry(user, user_entry);
-              // Generate a new token.
-              const std::string token = RandomToken();
-              user_entry.token = token;
-              storage_.Add(UIDTokenPair(uid, token, true)).Go();
-
-              RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")),
-                              std::move(r));
-            }
+          if (uid != UID::INVALID) {  // Existing user.
+            // Invalidating all old tokens.
+            storage_.Transaction([&](StorageAPI::T_DATA data) {
+                                   auto mutator = MatrixEntry<UIDTokenPair>::Mutator(data);
+                                   for (const auto& uid_token : mutator[uid]) {
+                                     mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
+                                   }
+                                   user = data.Get(uid);
+                                 }).Go();
+            user_entry.score = user.score;
+          } else {  // New user.
+            uid = RandomUID();
+            user.uid = uid;
+            storage_.Add(user).Go();
           }
-        });
 
-    HTTP(http_port_)
-        .Register("/feed", [this](Request r) {
-          const UID uid = StringToUID(r.url.query["uid"]);
-          const std::string token = r.url.query["token"];
-          if (r.method != "GET") {
-            r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
+          CopyUserInfoToResponseEntry(user, user_entry);
+          // Generate a new token.
+          const std::string token = RandomToken();
+          user_entry.token = token;
+          storage_.Add(UIDTokenPair(uid, token, true)).Go();
+
+          RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")), std::move(r));
+        }
+      }
+    });
+
+    HTTP(http_port_).Register("/feed", [this](Request r) {
+      const UID uid = StringToUID(r.url.query["uid"]);
+      const std::string token = r.url.query["token"];
+      if (r.method != "GET") {
+        r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
+      } else {
+        if (uid == UID::INVALID) {
+          r("NEED VALID UID\n", HTTPResponseCode.BadRequest);
+        } else {
+          bool valid_token = storage_.Get(uid, token).Go();
+          if (!valid_token) {
+            r("NEED VALID TOKEN\n", HTTPResponseCode.Unauthorized);
           } else {
-            if (uid == UID::INVALID) {
-              r("NEED VALID UID\n", HTTPResponseCode.BadRequest);
-            } else {
-              bool valid_token = storage_.Get(uid, token).Go();
-              if (!valid_token) {
-                r("NEED VALID TOKEN\n", HTTPResponseCode.Unauthorized);
-              } else {
-                const auto user = storage_.Get(uid).Go();
-                ResponseUserEntry user_entry;
-                CopyUserInfoToResponseEntry(user, user_entry);
-                user_entry.token = token;
-                RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")),
-                                std::move(r));
-              }
-            }
+            const auto user = storage_.Get(uid).Go();
+            ResponseUserEntry user_entry;
+            CopyUserInfoToResponseEntry(user, user_entry);
+            user_entry.token = token;
+            RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")), std::move(r));
           }
-        });
+        }
+      }
+    });
   }
 
   void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
