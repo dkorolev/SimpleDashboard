@@ -80,7 +80,7 @@ class CTFOServer {
 
           // Searching for users with provided device ID.
           storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                 const auto accessor = MatrixEntry<DeviceIdUIDPair>::Accessor(data);
+                                 const auto accessor = Matrix<DeviceIdUIDPair>::Accessor(data);
                                  if (accessor.Rows().Has(device_id)) {
                                    // Something went terribly wrong
                                    // if we have more than one UID for the device ID.
@@ -92,7 +92,7 @@ class CTFOServer {
           if (uid != UID::INVALID) {  // Existing user.
             // Invalidating all old tokens.
             storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                   auto mutator = MatrixEntry<UIDTokenPair>::Mutator(data);
+                                   auto mutator = Matrix<UIDTokenPair>::Mutator(data);
                                    for (const auto& uid_token : mutator[uid]) {
                                      mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
                                    }
@@ -148,7 +148,7 @@ class CTFOServer {
 
           std::vector<CID> candidates;
           const UID uid = StringToUID(response.user.uid);
-          const auto answers = MatrixEntry<Answer>::Accessor(data);
+          const auto answers = Matrix<Answer>::Accessor(data);
           const auto cards = Dictionary<Card>::Accessor(data);
           for (const auto& card : cards) {
             if (!answers.Get(uid, card.cid)) {
@@ -198,10 +198,10 @@ class CTFOServer {
       std::bind(std::uniform_int_distribution<int>(10, 99), rng_);
 
   typedef API<Dictionary<User>,
-              MatrixEntry<UIDTokenPair>,
-              MatrixEntry<DeviceIdUIDPair>,
+              Matrix<UIDTokenPair>,
+              Matrix<DeviceIdUIDPair>,
               Dictionary<Card>,
-              MatrixEntry<Answer>> StorageAPI;
+              Matrix<Answer>> StorageAPI;
   StorageAPI storage_;
   std::vector<std::string> cards_;
 
