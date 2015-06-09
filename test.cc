@@ -53,8 +53,8 @@ TEST(CTFO, SmokeTest) {
   bricks::time::SetNow(static_cast<bricks::time::EPOCH_MILLISECONDS>(123));
 
   const std::string device_id_str = "A_BUNCH_OF_DIGITS";
-  const std::string golden_uid_str = "u01095102796975956694";
-  const std::string golden_token_str = "t03095102796975956694";
+  const std::string golden_uid_str = "u01467830199344291139";
+  const std::string golden_token_str = "t03726045616790031270";
   const char* device_id = device_id_str.c_str();
   const char* golden_uid = golden_uid_str.c_str();
   const char* golden_token = golden_token_str.c_str();
