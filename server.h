@@ -37,6 +37,8 @@ SOFTWARE.
 #include "../Current/Bricks/strings/split.h"
 #include "../Current/Bricks/net/api/api.h"
 
+#include "../Current/EventCollector/event_collector.h"
+
 #include "schema.h"
 
 using namespace yoda;
@@ -44,13 +46,19 @@ using namespace bricks::strings;
 
 class CTFOServer {
  public:
-  explicit CTFOServer(int http_port, int rand_seed)
-      : http_port_(http_port),
-        rng_(rand_seed),
+  explicit CTFOServer(int rand_seed,
+                      int api_port,
+                      int event_log_port,
+                      const std::string& event_log_file,
+                      const bricks::time::MILLISECONDS_INTERVAL tick_interval_ms)
+      : rng_(rand_seed),
+        api_port_(api_port),
+        event_log_file_(event_log_file),
+        event_collector_(event_log_port, event_log_stream_, tick_interval_ms, "/log", "OK\n",
+                         std::bind(&CTFOServer::OnMidichloriansEvent, this, std::placeholders::_1)),
         storage_("CTFO storage"),
         cards_(Split<ByLines>(bricks::FileSystem::ReadFileAsString("cards.txt"))) {
-    assert(cards_.size() >= 2u);
-    assert(cards_[0] == "ZERO_INDEX_SHOULD_BE_KEPT_UNUSED");
+    event_log_stream_.open(event_log_file_, std::ofstream::out | std::ofstream::app);
 
     storage_.Transaction([this](StorageAPI::T_DATA data) {
       for (const auto& text : cards_) {
@@ -66,7 +74,7 @@ class CTFOServer {
       }
     });
 
-    HTTP(http_port_).Register("/auth/browser", [this](Request r) {
+    HTTP(api_port_).Register("/auth/browser", [this](Request r) {
       if (r.method != "POST") {
         r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
       } else {
@@ -80,7 +88,7 @@ class CTFOServer {
 
           // Searching for users with provided device ID.
           storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                 const auto accessor = MatrixEntry<DeviceIdUIDPair>::Accessor(data);
+                                 const auto accessor = Matrix<DeviceIdUIDPair>::Accessor(data);
                                  if (accessor.Rows().Has(device_id)) {
                                    // Something went terribly wrong
                                    // if we have more than one UID for the device ID.
@@ -92,7 +100,7 @@ class CTFOServer {
           if (uid != UID::INVALID) {  // Existing user.
             // Invalidating all old tokens.
             storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                   auto mutator = MatrixEntry<UIDTokenPair>::Mutator(data);
+                                   auto mutator = Matrix<UIDTokenPair>::Mutator(data);
                                    for (const auto& uid_token : mutator[uid]) {
                                      mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
                                    }
@@ -116,7 +124,7 @@ class CTFOServer {
       }
     });
 
-    HTTP(http_port_).Register("/feed", [this](Request r) {
+    HTTP(api_port_).Register("/feed", [this](Request r) {
       const UID uid = StringToUID(r.url.query["uid"]);
       const std::string token = r.url.query["token"];
       if (r.method != "GET") {
@@ -148,10 +156,10 @@ class CTFOServer {
 
           std::vector<CID> candidates;
           const UID uid = StringToUID(response.user.uid);
-          const auto answers = MatrixEntry<Answer>::Accessor(data);
+          const auto answers = Matrix<Answer>::Accessor(data);
           const auto cards = Dictionary<Card>::Accessor(data);
           for (const auto& card : cards) {
-            if (!answers.Get(uid, card.cid)) {
+            if (!answers.Has(uid, card.cid)) {
               candidates.push_back(card.cid);
             }
           }
@@ -180,11 +188,15 @@ class CTFOServer {
         std::move(r));
   }
 
-  void Join() { HTTP(http_port_).Join(); }
+  void Join() { HTTP(api_port_).Join(); }
 
  private:
-  const int http_port_;
   std::mt19937_64 rng_;
+  const int api_port_;
+  const std::string event_log_file_;
+  std::ofstream event_log_stream_;
+  EventCollectorHTTPServer event_collector_;
+
   static constexpr uint64_t id_range_ = static_cast<uint64_t>(1e18);
   std::function<uint64_t()> random_uid_ =
       std::bind(std::uniform_int_distribution<uint64_t>(1 * id_range_, 2 * id_range_ - 1), rng_);
@@ -198,10 +210,10 @@ class CTFOServer {
       std::bind(std::uniform_int_distribution<int>(10, 99), rng_);
 
   typedef API<Dictionary<User>,
-              MatrixEntry<UIDTokenPair>,
-              MatrixEntry<DeviceIdUIDPair>,
+              Matrix<UIDTokenPair>,
+              Matrix<DeviceIdUIDPair>,
               Dictionary<Card>,
-              MatrixEntry<Answer>> StorageAPI;
+              Matrix<Answer>> StorageAPI;
   StorageAPI storage_;
   std::vector<std::string> cards_;
 
@@ -233,6 +245,11 @@ class CTFOServer {
   void CopyUserInfoToResponseEntry(const User& user, ResponseUserEntry& entry) {
     entry.uid = UIDToString(user.uid);
     entry.score = user.score;
+  }
+
+  void OnMidichloriansEvent(const LogEntry& entry) {
+    //TODO(mzhurovich): update answers here.
+    static_cast<void>(entry);
   }
 };
 
