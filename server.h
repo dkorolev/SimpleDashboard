@@ -69,7 +69,7 @@ class CTFOServer {
         Card card(cid, text);
         card.ctfo_count = random_10_99_picker_();
         card.tfu_count = random_10_99_picker_();
-        card.tifb_count = random_10_99_picker_();
+        card.skip_count = random_10_99_picker_();
         data.Add(card);
       }
     });
@@ -218,7 +218,7 @@ class CTFOServer {
   std::vector<std::string> cards_;
 
   const std::map<std::string, ANSWER> valid_answers_ = {
-      {"ctfo", ANSWER::CTFO}, {"tfu", ANSWER::TFU}, {"tifb", ANSWER::TIFB}};
+      {"ctfo", ANSWER::CTFO}, {"tfu", ANSWER::TFU}, {"skip", ANSWER::SKIP}};
 
   UID RandomUID() { return static_cast<UID>(random_uid_()); }
   CID RandomCID() { return static_cast<CID>(random_cid_()); }

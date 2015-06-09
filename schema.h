@@ -35,7 +35,7 @@ SOFTWARE.
 // Data structures for internal storage.
 enum class UID : uint64_t { INVALID = 0u };
 enum class CID : uint64_t { INVALID = 0u };
-enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, TIFB = -1 };
+enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
 
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
@@ -93,7 +93,7 @@ struct Card : yoda::Padawan {
   std::string text = "";  // Text to display.
   uint64_t ctfo_count = 0;
   uint64_t tfu_count = 0;
-  uint64_t tifb_count = 0;
+  uint64_t skip_count = 0;
 
   Card() = default;
   Card(const Card&) = default;
@@ -109,7 +109,7 @@ struct Card : yoda::Padawan {
        CEREAL_NVP(text),
        CEREAL_NVP(ctfo_count),
        CEREAL_NVP(tfu_count),
-       CEREAL_NVP(tifb_count));
+       CEREAL_NVP(skip_count));
   }
 };
 
