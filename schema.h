@@ -37,8 +37,20 @@ enum class UID : uint64_t { INVALID = 0u };
 enum class CID : uint64_t { INVALID = 0u };
 enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
 
+std::vector<unsigned int> LEVELS = {0,         // "Fish"
+                                    15000,     // "Turkey"
+                                    30000,     // "Rat"
+                                    60000,     // "Pig"
+                                    120000,    // "Octopus"
+                                    240000,    // "Raven"
+                                    480000,    // "Dolphin"
+                                    960000,    // "Elephant"
+                                    1920000,   // "Chimp"
+                                    3840000};  // "Skrik"
+
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
+  unsigned int level = 1u;
   uint64_t score = 0u;
 
   UID key() const { return uid; }
@@ -47,7 +59,7 @@ struct User : yoda::Padawan {
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(score));
+    ar(CEREAL_NVP(level), CEREAL_NVP(score));
   }
 };
 
@@ -91,9 +103,9 @@ struct DeviceIdUIDPair : yoda::Padawan {
 struct Card : yoda::Padawan {
   CID cid = CID::INVALID;
   std::string text = "";  // Text to display.
-  uint64_t ctfo_count = 0;
-  uint64_t tfu_count = 0;
-  uint64_t skip_count = 0;
+  uint64_t ctfo_count = 0u;
+  uint64_t tfu_count = 0u;
+  uint64_t skip_count = 0u;
 
   Card() = default;
   Card(const Card&) = default;
@@ -136,13 +148,19 @@ struct Answer : yoda::Padawan {
 
 // Data structures for generating RESTful response.
 struct ResponseUserEntry {
-  std::string uid = "uINVALID";  // User id, format 'u01XXX...'.
-  std::string token = "";        // User token.
-  uint64_t score = 0u;           // User score.
+  std::string uid = "uINVALID";    // User id, format 'u01XXX...'.
+  std::string token = "";          // User token.
+  unsigned int level = 1u;         // User level, [1, 10].
+  uint64_t score = 0u;             // User score.
+  uint64_t next_level_score = 0u;  // Score value when user is promoted to the next level.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(uid), CEREAL_NVP(token), CEREAL_NVP(score));
+    ar(CEREAL_NVP(uid),
+       CEREAL_NVP(token),
+       CEREAL_NVP(level),
+       CEREAL_NVP(score),
+       CEREAL_NVP(next_level_score));
   }
 };
 
@@ -150,15 +168,17 @@ struct ResponseCardEntry {
   std::string cid = "cINVALID";  // Card id, format 'c02XXX...'.
   std::string text = "";         // Card text.
   double relevance = 0.0;        // Card relevance for particular user, [0.0, 1.0].
-  uint64_t score = 0u;           // Number of points, which user gets for "right" answer.
-  double ctfo_percentage = 0.5;  // Percentage of users, who answered "CTFO" for this card.
+  uint64_t ctfo_score = 0u;      // Number of points, which user gets for "CTFO" answer.
+  uint64_t tfu_score = 0u;       // Number of points, which user gets for "TFU" answer.
+  double ctfo_percentage = 0.5;  // Proportion of users, who answered "CTFO" for this card, [0.0, 1.0].
 
   template <typename A>
   void serialize(A& ar) {
     ar(CEREAL_NVP(cid),
        CEREAL_NVP(text),
        CEREAL_NVP(relevance),
-       CEREAL_NVP(score),
+       CEREAL_NVP(ctfo_score),
+       CEREAL_NVP(tfu_score),
        CEREAL_NVP(ctfo_percentage));
   }
 };

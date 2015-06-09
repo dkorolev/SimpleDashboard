@@ -92,6 +92,9 @@ TEST(CTFO, SmokeTest) {
   EXPECT_EQ(234u, feed.ts);
   EXPECT_EQ(golden_uid_str, feed.user.uid);
   EXPECT_EQ(golden_token_str, feed.user.token);
+  EXPECT_EQ(1u, feed.user.level);
+  EXPECT_EQ(0u, feed.user.score);
+  EXPECT_EQ(LEVELS[0], feed.user.next_level_score);
   EXPECT_EQ(40u, feed.cards.size());
   std::unordered_set<std::string> cids;
   std::unordered_set<std::string> texts;

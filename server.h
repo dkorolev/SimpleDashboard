@@ -173,7 +173,8 @@ class CTFOServer {
             const Card& card = data.Get(cid);
             card_entry.text = card.text;
             card_entry.relevance = random_0_1_picker_();
-            card_entry.score = random_10_99_picker_();
+            card_entry.ctfo_score = 50u;
+            card_entry.tfu_score = 50u;
             const uint64_t total_answers = card.ctfo_count + card.tfu_count;
             if (total_answers > 0) {
               card_entry.ctfo_percentage = static_cast<double>(card.ctfo_count) / total_answers;
@@ -245,6 +246,13 @@ class CTFOServer {
   void CopyUserInfoToResponseEntry(const User& user, ResponseUserEntry& entry) {
     entry.uid = UIDToString(user.uid);
     entry.score = user.score;
+    entry.level = user.level;
+    assert(user.level > 0u);
+    if (user.level <= LEVELS.size()) {
+      entry.next_level_score = LEVELS[user.level - 1];
+    } else {
+      entry.next_level_score = 0u;
+    }
   }
 
   void OnMidichloriansEvent(const LogEntry& entry) {
