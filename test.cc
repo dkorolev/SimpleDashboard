@@ -59,8 +59,8 @@ TEST(CTFO, SmokeTest) {
   const char* golden_uid = golden_uid_str.c_str();
   const char* golden_token = golden_token_str.c_str();
 
-  const auto post_feed_response =
-      HTTP(POST(Printf("http://localhost:%d/feed?uid=%s&token=%s", FLAGS_api_port, golden_uid, golden_token), ""));
+  const auto post_feed_response = HTTP(
+      POST(Printf("http://localhost:%d/feed?uid=%s&token=%s", FLAGS_api_port, golden_uid, golden_token), ""));
   EXPECT_EQ(405, static_cast<int>(post_feed_response.code));
   EXPECT_EQ("METHOD NOT ALLOWED\n", post_feed_response.body);
 
@@ -85,8 +85,8 @@ TEST(CTFO, SmokeTest) {
 
   bricks::time::SetNow(static_cast<bricks::time::EPOCH_MILLISECONDS>(234));
 
-  const auto feed_response = HTTP(GET(
-      Printf("http://localhost:%d/feed?uid=%s&token=%s&feed_count=40", FLAGS_api_port, golden_uid, golden_token)));
+  const auto feed_response = HTTP(GET(Printf(
+      "http://localhost:%d/feed?uid=%s&token=%s&feed_count=40", FLAGS_api_port, golden_uid, golden_token)));
   EXPECT_EQ(200, static_cast<int>(feed_response.code));
   feed = ParseJSON<ResponseFeed>(feed_response.body);
   EXPECT_EQ(234u, feed.ts);
@@ -94,7 +94,7 @@ TEST(CTFO, SmokeTest) {
   EXPECT_EQ(golden_token_str, feed.user.token);
   EXPECT_EQ(1u, feed.user.level);
   EXPECT_EQ(0u, feed.user.score);
-  EXPECT_EQ(LEVELS[0], feed.user.next_level_score);
+  EXPECT_EQ(15000u, feed.user.next_level_score);
   EXPECT_EQ(40u, feed.cards.size());
   std::unordered_set<std::string> cids;
   std::unordered_set<std::string> texts;

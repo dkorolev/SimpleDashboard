@@ -35,7 +35,9 @@ CEREAL_REGISTER_TYPE(Answer);
 
 DEFINE_int32(api_port, 8383, "Port to spawn CTFO RESTful server on.");
 DEFINE_int32(event_log_port, 8384, "Port to spawn event collector on.");
-DEFINE_string(event_log_file, "./ctfo_events.log", "Log file to store events received by event collector server.");
+DEFINE_string(event_log_file,
+              "./ctfo_events.log",
+              "Log file to store events received by event collector server.");
 DEFINE_int32(rand_seed, 42, "The answer to the question of life, universe and everything.");
 DEFINE_int32(tick_interval_ms, 5 * 60 * 1000, "Maximum interval between event entries.");
 

@@ -54,7 +54,11 @@ class CTFOServer {
       : rng_(rand_seed),
         api_port_(api_port),
         event_log_file_(event_log_file),
-        event_collector_(event_log_port, event_log_stream_, tick_interval_ms, "/log", "OK\n",
+        event_collector_(event_log_port,
+                         event_log_stream_,
+                         tick_interval_ms,
+                         "/log",
+                         "OK\n",
                          std::bind(&CTFOServer::OnMidichloriansEvent, this, std::placeholders::_1)),
         storage_("CTFO storage"),
         cards_(Split<ByLines>(bricks::FileSystem::ReadFileAsString("cards.txt"))) {
@@ -210,11 +214,8 @@ class CTFOServer {
   std::function<int()> random_10_99_picker_ =
       std::bind(std::uniform_int_distribution<int>(10, 99), std::ref(rng_));
 
-  typedef API<Dictionary<User>,
-              Matrix<UIDTokenPair>,
-              Matrix<DeviceIdUIDPair>,
-              Dictionary<Card>,
-              Matrix<Answer>> StorageAPI;
+  typedef API<Dictionary<User>, Matrix<UIDTokenPair>, Matrix<DeviceIdUIDPair>, Dictionary<Card>, Matrix<Answer>>
+      StorageAPI;
   StorageAPI storage_;
   std::vector<std::string> cards_;
 
@@ -228,7 +229,7 @@ class CTFOServer {
   std::string UIDToString(UID uid) { return bricks::strings::Printf("u%020llu", static_cast<uint64_t>(uid)); }
 
   static UID StringToUID(const std::string& s) {
-    if (s.length() == 21 && s[0] == 'u') {  // 'u' + 20 digits of `uint64_t` decimal representation;
+    if (s.length() == 21 && s[0] == 'u') {  // 'u' + 20 digits of `uint64_t` decimal representation.
       return static_cast<UID>(FromString<uint64_t>(s.substr(1)));
     }
     return UID::INVALID;
@@ -237,7 +238,7 @@ class CTFOServer {
   std::string CIDToString(CID cid) { return bricks::strings::Printf("c%020llu", static_cast<uint64_t>(cid)); }
 
   static CID StringToCID(const std::string& s) {
-    if (s.length() == 21 && s[0] == 'c') {  // 'c' + 20 digits of `uint64_t` decimal representation;
+    if (s.length() == 21 && s[0] == 'c') {  // 'c' + 20 digits of `uint64_t` decimal representation.
       return static_cast<CID>(FromString<uint64_t>(s.substr(1)));
     }
     return CID::INVALID;
@@ -248,15 +249,15 @@ class CTFOServer {
     entry.score = user.score;
     entry.level = user.level;
     assert(user.level > 0u);
-    if (user.level <= LEVELS.size()) {
-      entry.next_level_score = LEVELS[user.level - 1];
+    if (user.level < LEVELS.size()) {
+      entry.next_level_score = LEVELS[user.level];  // LEVELS = { 0u, ... }
     } else {
       entry.next_level_score = 0u;
     }
   }
 
   void OnMidichloriansEvent(const LogEntry& entry) {
-    //TODO(mzhurovich): update answers here.
+    // TODO(mzhurovich): update answers here.
     static_cast<void>(entry);
   }
 };

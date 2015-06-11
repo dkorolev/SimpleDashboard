@@ -37,16 +37,18 @@ enum class UID : uint64_t { INVALID = 0u };
 enum class CID : uint64_t { INVALID = 0u };
 enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
 
-std::vector<unsigned int> LEVELS = {0,         // "Fish"
-                                    15000,     // "Turkey"
-                                    30000,     // "Rat"
-                                    60000,     // "Pig"
-                                    120000,    // "Octopus"
-                                    240000,    // "Raven"
-                                    480000,    // "Dolphin"
-                                    960000,    // "Elephant"
-                                    1920000,   // "Chimp"
-                                    3840000};  // "Skrik"
+const std::vector<unsigned int> LEVELS{
+    0,        // "Fish"
+    15000,    // "Turkey"
+    30000,    // "Rat"
+    60000,    // "Pig"
+    120000,   // "Octopus"
+    240000,   // "Raven"
+    480000,   // "Dolphin"
+    960000,   // "Elephant"
+    1920000,  // "Chimp"
+    3840000   // "Skrik"
+};
 
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
@@ -156,11 +158,7 @@ struct ResponseUserEntry {
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(uid),
-       CEREAL_NVP(token),
-       CEREAL_NVP(level),
-       CEREAL_NVP(score),
-       CEREAL_NVP(next_level_score));
+    ar(CEREAL_NVP(uid), CEREAL_NVP(token), CEREAL_NVP(level), CEREAL_NVP(score), CEREAL_NVP(next_level_score));
   }
 };
 
