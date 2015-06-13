@@ -53,8 +53,8 @@ const std::vector<unsigned int> LEVEL_SCORES{
 
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
-  unsigned int level = 0u;  // User level [0, 9].
-  uint64_t score = 0u;      // User score.
+  uint8_t level = 0u;   // User level [0, 9].
+  uint64_t score = 0u;  // User score.
 
   UID key() const { return uid; }
   void set_key(UID value) { uid = value; }
@@ -81,7 +81,7 @@ struct AuthKey {
   AuthKey(const std::string& key1, const std::string& key2, AUTH_TYPE type)
       : key1(key1), key2(key2), type(type) {}
   size_t Hash() const { return std::hash<std::string>()(key1) ^ std::hash<std::string>()(key2); }
-  bool operator==(const AuthKey& rhs) const { return key1 == rhs.key1 && key2 == rhs.key2; }
+  bool operator==(const AuthKey& rhs) const { return key1 == rhs.key1 && key2 == rhs.key2 && type == rhs.type; }
 
   template <typename A>
   void serialize(A& ar) {
@@ -177,7 +177,7 @@ struct Answer : yoda::Padawan {
 struct ResponseUserEntry {
   std::string uid = "uINVALID";    // User id, format 'u01XXX...'.
   std::string token = "";          // User token.
-  unsigned int level = 0u;         // User level, [0, 9].
+  uint8_t level = 0u;              // User level, [0, 9].
   uint64_t score = 0u;             // User score.
   uint64_t next_level_score = 0u;  // Score value when user is promoted to the next level.
 
