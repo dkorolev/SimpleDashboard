@@ -35,11 +35,26 @@ SOFTWARE.
 // Data structures for internal storage.
 enum class UID : uint64_t { INVALID = 0u };
 enum class CID : uint64_t { INVALID = 0u };
-enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, TIFB = -1 };
+enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
+enum class AUTH_TYPE : int { UNDEFINED = 0, IOS };
+
+const std::vector<unsigned int> LEVEL_SCORES{
+    0,        // "Fish"
+    15000,    // "Turkey"
+    30000,    // "Rat"
+    60000,    // "Pig"
+    120000,   // "Octopus"
+    240000,   // "Raven"
+    480000,   // "Dolphin"
+    960000,   // "Elephant"
+    1920000,  // "Chimp"
+    3840000   // "Skrik"
+};
 
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
-  uint64_t score = 0u;
+  uint8_t level = 0u;   // User level [0, 9].
+  uint64_t score = 0u;  // User score.
 
   UID key() const { return uid; }
   void set_key(UID value) { uid = value; }
@@ -47,53 +62,77 @@ struct User : yoda::Padawan {
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(score));
+    ar(CEREAL_NVP(level), CEREAL_NVP(score));
   }
 };
 
-struct UIDTokenPair : yoda::Padawan {
-  UID uid = UID::INVALID;
+// AuthKey structure defines generic authentication key, which consists of a pair of `std::string`s.
+// `key1` and `key2` may be used in different ways, depending on the authentication type.
+// For `type = AUTH_TYPE::IOS`:
+//  - key1 = Device ID
+//  - key2 = Application key, a random number, generated once in a lifetime in iOS application on its first
+//  launch.
+struct AuthKey {
+  std::string key1 = "";
+  std::string key2 = "";
+  AUTH_TYPE type = AUTH_TYPE::UNDEFINED;
+
+  AuthKey() = default;
+  AuthKey(const std::string& key1, const std::string& key2, AUTH_TYPE type)
+      : key1(key1), key2(key2), type(type) {}
+  size_t Hash() const { return std::hash<std::string>()(key1) ^ std::hash<std::string>()(key2); }
+  bool operator==(const AuthKey& rhs) const { return key1 == rhs.key1 && key2 == rhs.key2 && type == rhs.type; }
+
+  template <typename A>
+  void serialize(A& ar) {
+    ar(CEREAL_NVP(key1), CEREAL_NVP(key2), CEREAL_NVP(type));
+  }
+};
+
+struct AuthKeyTokenPair : yoda::Padawan {
+  AuthKey auth_key;
   std::string token = "";
   bool valid = false;
 
-  UIDTokenPair() = default;
-  UIDTokenPair(const UIDTokenPair&) = default;
-  UIDTokenPair(UID uid, const std::string& token, bool valid = false) : uid(uid), token(token), valid(valid) {}
+  AuthKeyTokenPair() = default;
+  AuthKeyTokenPair(const AuthKeyTokenPair&) = default;
+  AuthKeyTokenPair(const AuthKey& auth_key, const std::string& token, bool valid = false)
+      : auth_key(auth_key), token(token), valid(valid) {}
 
-  UID row() const { return uid; }
-  void set_row(UID value) { uid = value; }
+  const AuthKey& row() const { return auth_key; }
+  void set_row(const AuthKey& value) { auth_key = value; }
   const std::string& col() const { return token; }
   void set_col(const std::string& value) { token = value; }
 
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(uid), CEREAL_NVP(token), CEREAL_NVP(valid));
+    ar(CEREAL_NVP(auth_key), CEREAL_NVP(token), CEREAL_NVP(valid));
   }
 };
 
-struct DeviceIdUIDPair : yoda::Padawan {
-  std::string device_id = "";
+struct AuthKeyUIDPair : yoda::Padawan {
+  AuthKey auth_key;
   UID uid = UID::INVALID;
 
-  const std::string& row() const { return device_id; }
-  void set_row(const std::string& value) { device_id = value; }
+  const AuthKey& row() const { return auth_key; }
+  void set_row(const AuthKey& value) { auth_key = value; }
   UID col() const { return uid; }
   void set_col(UID value) { uid = value; }
 
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(device_id), CEREAL_NVP(uid));
+    ar(CEREAL_NVP(auth_key), CEREAL_NVP(uid));
   }
 };
 
 struct Card : yoda::Padawan {
   CID cid = CID::INVALID;
-  std::string text = "";  // Text to display.
-  uint64_t ctfo_count = 0;
-  uint64_t tfu_count = 0;
-  uint64_t tifb_count = 0;
+  std::string text = "";     // Card text.
+  uint64_t ctfo_count = 0u;  // Number of users, who said "CTFO" on this card.
+  uint64_t tfu_count = 0u;   // Number of users, who said "TFU" on this card.
+  uint64_t skip_count = 0u;  // Number of users, who said "SKIP" on this card.
 
   Card() = default;
   Card(const Card&) = default;
@@ -109,7 +148,7 @@ struct Card : yoda::Padawan {
        CEREAL_NVP(text),
        CEREAL_NVP(ctfo_count),
        CEREAL_NVP(tfu_count),
-       CEREAL_NVP(tifb_count));
+       CEREAL_NVP(skip_count));
   }
 };
 
@@ -136,13 +175,15 @@ struct Answer : yoda::Padawan {
 
 // Data structures for generating RESTful response.
 struct ResponseUserEntry {
-  std::string uid = "uINVALID";  // User id, format 'u01XXX...'.
-  std::string token = "";        // User token.
-  uint64_t score = 0u;           // User score.
+  std::string uid = "uINVALID";    // User id, format 'u01XXX...'.
+  std::string token = "";          // User token.
+  uint8_t level = 0u;              // User level, [0, 9].
+  uint64_t score = 0u;             // User score.
+  uint64_t next_level_score = 0u;  // Score value when user is promoted to the next level.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(uid), CEREAL_NVP(token), CEREAL_NVP(score));
+    ar(CEREAL_NVP(uid), CEREAL_NVP(token), CEREAL_NVP(level), CEREAL_NVP(score), CEREAL_NVP(next_level_score));
   }
 };
 
@@ -150,28 +191,30 @@ struct ResponseCardEntry {
   std::string cid = "cINVALID";  // Card id, format 'c02XXX...'.
   std::string text = "";         // Card text.
   double relevance = 0.0;        // Card relevance for particular user, [0.0, 1.0].
-  uint64_t score = 0u;           // Number of points, which user gets for "right" answer.
-  double ctfo_percentage = 0.5;  // Percentage of users, who answered "CTFO" for this card.
+  uint64_t ctfo_score = 0u;      // Number of points, which user gets for "CTFO" answer.
+  uint64_t tfu_score = 0u;       // Number of points, which user gets for "TFU" answer.
+  double ctfo_percentage = 0.5;  // Proportion of users, who answered "CTFO" for this card, [0.0, 1.0].
 
   template <typename A>
   void serialize(A& ar) {
     ar(CEREAL_NVP(cid),
        CEREAL_NVP(text),
        CEREAL_NVP(relevance),
-       CEREAL_NVP(score),
+       CEREAL_NVP(ctfo_score),
+       CEREAL_NVP(tfu_score),
        CEREAL_NVP(ctfo_percentage));
   }
 };
 
 // Universal response structure, combining user info & cards payload.
 struct ResponseFeed {
-  uint64_t ts;                           // Feed timestamp.
+  uint64_t ms;                           // Server timestamp, milliseconds from epoch.
   ResponseUserEntry user;                // User information.
   std::vector<ResponseCardEntry> cards;  // Cards feed.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(ts), CEREAL_NVP(user), CEREAL_NVP(cards));
+    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(cards));
   }
 };
 

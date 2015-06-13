@@ -28,21 +28,23 @@ SOFTWARE.
 #include "../Current/Bricks/dflags/dflags.h"
 
 CEREAL_REGISTER_TYPE(User);
-CEREAL_REGISTER_TYPE(UIDTokenPair);
-CEREAL_REGISTER_TYPE(DeviceIdUIDPair);
+CEREAL_REGISTER_TYPE(AuthKeyTokenPair);
+CEREAL_REGISTER_TYPE(AuthKeyUIDPair);
 CEREAL_REGISTER_TYPE(Card);
 CEREAL_REGISTER_TYPE(Answer);
 
-DEFINE_int32(api_port, 8383, "Port to spawn CTFO RESTful server on.");
-DEFINE_int32(event_log_port, 8384, "Port to spawn event collector on.");
-DEFINE_string(event_log_file, "./ctfo_events.log", "Log file to store events received by event collector server.");
+DEFINE_int32(port, 8383, "Port to spawn CTFO RESTful server on.");
+DEFINE_int32(event_log_port, 0, "Port to spawn event collector on.");  // 0 = the same as `port`.
+DEFINE_string(event_log_file,
+              "./ctfo_events.log",
+              "Log file to store events received by event collector server.");
 DEFINE_int32(rand_seed, 42, "The answer to the question of life, universe and everything.");
 DEFINE_int32(tick_interval_ms, 5 * 60 * 1000, "Maximum interval between event entries.");
 
 int main(int argc, char **argv) {
   ParseDFlags(&argc, &argv);
   CTFOServer(FLAGS_rand_seed,
-             FLAGS_api_port,
+             FLAGS_port,
              FLAGS_event_log_port,
              FLAGS_event_log_file,
              static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms)).Join();
