@@ -47,17 +47,17 @@ using namespace bricks::strings;
 class CTFOServer {
  public:
   explicit CTFOServer(int rand_seed,
-                      int api_port,
+                      int port,
                       int event_log_port,
                       const std::string& event_log_file,
                       const bricks::time::MILLISECONDS_INTERVAL tick_interval_ms)
       : rng_(rand_seed),
-        api_port_(api_port),
+        port_(port),
         event_log_file_(event_log_file),
-        event_collector_(event_log_port,
+        event_collector_(event_log_port ? event_log_port : port,
                          event_log_stream_,
                          tick_interval_ms,
-                         "/log",
+                         "/ctfo/log",
                          "OK\n",
                          std::bind(&CTFOServer::OnMidichloriansEvent, this, std::placeholders::_1)),
         storage_("CTFO storage"),
@@ -78,38 +78,49 @@ class CTFOServer {
       }
     });
 
-    HTTP(api_port_).Register("/auth/browser", [this](Request r) {
+    HTTP(port_).Register("/ctfo/auth/ios", [this](Request r) {
       if (r.method != "POST") {
         r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
       } else {
-        const std::string device_id = r.url.query.get("device_id", "");
-        if (device_id.empty()) {
-          r("NEED VALID DEVICE ID\n", HTTPResponseCode.BadRequest);
+        const std::string device_id = r.url.query.get("id", "");
+        const std::string app_key = r.url.query.get("key", "");
+        if (device_id.empty() || app_key.empty()) {
+          r("NEED VALID ID-KEY PAIR\n", HTTPResponseCode.BadRequest);
         } else {
+          AuthKey auth_key(device_id, app_key, AUTH_TYPE::IOS);
           UID uid = UID::INVALID;
           User user;
           ResponseUserEntry user_entry;
+          std::string token;
 
-          // Searching for users with provided device ID.
-          storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                 const auto accessor = Matrix<DeviceIdUIDPair>::Accessor(data);
-                                 if (accessor.Rows().Has(device_id)) {
+          // Searching for users with the authentication key, consisting of `device_id` and `app_key`.
+          storage_.Transaction([this, &uid, &auth_key, &user, &token](StorageAPI::T_DATA data) {
+                                 const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
+                                 if (auth_uid_accessor.Rows().Has(auth_key)) {
                                    // Something went terribly wrong
-                                   // if we have more than one UID for the device ID.
-                                   assert(accessor[device_id].size() == 1);
-                                   uid = accessor[device_id].begin()->uid;
+                                   // if we have more than one UID for `device_id` + `app_key` pair.
+                                   assert(auth_uid_accessor[auth_key].size() == 1);
+                                   uid = auth_uid_accessor[auth_key].begin()->uid;
                                  }
+
+                                 auto auth_token_mutator = Matrix<AuthKeyTokenPair>::Mutator(data);
+                                 if (uid != UID::INVALID) {
+                                   // User exists => invalidate all tokens.
+                                   for (const auto& auth_token : auth_token_mutator[auth_key]) {
+                                     auth_token_mutator.Add(
+                                         AuthKeyTokenPair(auth_key, auth_token.token, false));
+                                   }
+                                   user = data.Get(uid);
+                                 }
+
+                                 // Generate a new token.
+                                 do {
+                                   token = RandomToken();
+                                 } while (auth_token_mutator.Cols().Has(token));
+                                 auth_token_mutator.Add(AuthKeyTokenPair(auth_key, token, true));
                                }).Go();
 
           if (uid != UID::INVALID) {  // Existing user.
-            // Invalidating all old tokens.
-            storage_.Transaction([&](StorageAPI::T_DATA data) {
-                                   auto mutator = Matrix<UIDTokenPair>::Mutator(data);
-                                   for (const auto& uid_token : mutator[uid]) {
-                                     mutator.Add(UIDTokenPair(uid_token.uid, uid_token.token, false));
-                                   }
-                                   user = data.Get(uid);
-                                 }).Go();
             user_entry.score = user.score;
           } else {  // New user.
             uid = RandomUID();
@@ -118,17 +129,14 @@ class CTFOServer {
           }
 
           CopyUserInfoToResponseEntry(user, user_entry);
-          // Generate a new token.
-          const std::string token = RandomToken();
           user_entry.token = token;
-          storage_.Add(UIDTokenPair(uid, token, true)).Go();
 
           RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")), std::move(r));
         }
       }
     });
 
-    HTTP(api_port_).Register("/feed", [this](Request r) {
+    HTTP(port_).Register("/ctfo/feed", [this](Request r) {
       const UID uid = StringToUID(r.url.query["uid"]);
       const std::string token = r.url.query["token"];
       if (r.method != "GET") {
@@ -137,7 +145,18 @@ class CTFOServer {
         if (uid == UID::INVALID) {
           r("NEED VALID UID\n", HTTPResponseCode.BadRequest);
         } else {
-          bool valid_token = storage_.Get(uid, token).Go();
+          bool valid_token = false;
+          storage_.Transaction([&uid, &token, &valid_token](StorageAPI::T_DATA data) {
+                                 const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
+                                 if (auth_token_accessor.Cols().Has(token)) {
+                                   // Something went terribly wrong
+                                   // if we have more than one `device_id` + `app_key` pair for token.
+                                   assert(auth_token_accessor[token].size() == 1);
+                                   if (auth_token_accessor[token].begin()->valid) {
+                                     valid_token = true;
+                                   }
+                                 }
+                               }).Go();
           if (!valid_token) {
             r("NEED VALID TOKEN\n", HTTPResponseCode.Unauthorized);
           } else {
@@ -187,17 +206,17 @@ class CTFOServer {
             }
           }
 
-          response.ts = static_cast<uint64_t>(bricks::time::Now());
+          response.ms = static_cast<uint64_t>(bricks::time::Now());
           return response;
         },
         std::move(r));
   }
 
-  void Join() { HTTP(api_port_).Join(); }
+  void Join() { HTTP(port_).Join(); }
 
  private:
   std::mt19937_64 rng_;
-  const int api_port_;
+  const int port_;
   const std::string event_log_file_;
   std::ofstream event_log_stream_;
   EventCollectorHTTPServer event_collector_;
@@ -214,8 +233,11 @@ class CTFOServer {
   std::function<int()> random_10_99_picker_ =
       std::bind(std::uniform_int_distribution<int>(10, 99), std::ref(rng_));
 
-  typedef API<Dictionary<User>, Matrix<UIDTokenPair>, Matrix<DeviceIdUIDPair>, Dictionary<Card>, Matrix<Answer>>
-      StorageAPI;
+  typedef API<Dictionary<User>,
+              Matrix<AuthKeyTokenPair>,
+              Matrix<AuthKeyUIDPair>,
+              Dictionary<Card>,
+              Matrix<Answer>> StorageAPI;
   StorageAPI storage_;
   std::vector<std::string> cards_;
 
@@ -248,9 +270,8 @@ class CTFOServer {
     entry.uid = UIDToString(user.uid);
     entry.score = user.score;
     entry.level = user.level;
-    assert(user.level > 0u);
-    if (user.level < LEVELS.size()) {
-      entry.next_level_score = LEVELS[user.level];  // LEVELS = { 0u, ... }
+    if (user.level < LEVEL_SCORES.size() - 1) {
+      entry.next_level_score = LEVEL_SCORES[user.level + 1];  // LEVEL_SCORES = { 0u, ... }
     } else {
       entry.next_level_score = 0u;
     }
