@@ -41,6 +41,9 @@ SOFTWARE.
 
 #include "schema.h"
 
+// Structured iOS events.
+#include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
+
 using namespace yoda;
 using namespace bricks::strings;
 
@@ -148,22 +151,22 @@ class CTFOServer {
         if (uid == UID::INVALID) {
           r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.BadRequest);
         } else {
-          bool valid_token = false;
-          storage_.Transaction([&uid, &token, &valid_token](StorageAPI::T_DATA data) {
+          bool token_is_valid = false;
+          storage_.Transaction([&uid, &token, &token_is_valid](StorageAPI::T_DATA data) {
                                  const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
                                  if (auth_token_accessor.Cols().Has(token)) {
                                    // Something went terribly wrong
-                                   // if we have more than one `device_id` + `app_key` pair for token.
+                                   // if we have more than one authentication key for token.
                                    assert(auth_token_accessor[token].size() == 1);
                                    if (auth_token_accessor[token].begin()->valid) {
                                      // Double check, if the provided `uid` is correct as well.
                                      const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
-                                     valid_token =
+                                     token_is_valid =
                                          auth_uid_accessor.Has(auth_token_accessor[token].begin().key(), uid);
                                    }
                                  }
                                }).Go();
-          if (!valid_token) {
+          if (!token_is_valid) {
             r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
           } else {
             const auto user = storage_.Get(uid).Go();
@@ -294,8 +297,50 @@ class CTFOServer {
   }
 
   void OnMidichloriansEvent(const LogEntry& entry) {
-    // TODO(mzhurovich): update answers here.
-    static_cast<void>(entry);
+    std::unique_ptr<MidichloriansEvent> event;
+    if (entry.m == "POST") {
+      try {
+        ParseJSON(entry.b, event);
+        UpdateStateOnEvent(event);
+      } catch (const bricks::ParseJSONException&) {
+        // TODO(mzhurovich): Error logging.
+        std::cerr << "Parse JSON failed." << std::endl;
+      }
+    }
+  }
+
+  void UpdateStateOnEvent(const std::unique_ptr<MidichloriansEvent>& event) {
+    try {
+      const iOSGenericEvent& ge = dynamic_cast<const iOSGenericEvent&>(*event.get());
+      if (valid_answers_.find(ge.event) != valid_answers_.end()) {
+        const ANSWER answer = valid_answers_.at(ge.event);
+        const UID uid = StringToUID(ge.fields.at("uid"));
+        const CID cid = StringToCID(ge.fields.at("cid"));
+        const std::string token = ge.fields.at("token");
+        if (uid != UID::INVALID && cid != CID::INVALID) {
+          storage_.Transaction([&uid, &cid, &token, &answer](StorageAPI::T_DATA data) {
+                                 const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
+                                 bool token_is_valid = false;
+                                 if (auth_token_accessor.Cols().Has(token)) {
+                                   // Something went terribly wrong
+                                   // if we have more than one authentication key for token.
+                                   assert(auth_token_accessor[token].size() == 1);
+                                   if (auth_token_accessor[token].begin()->valid) {
+                                     token_is_valid = true;
+                                   }
+                                 }
+                                 if (token_is_valid) {
+                                   auto answers_mutator = Matrix<Answer>::Mutator(data);
+                                   if (!answers_mutator.Has(uid, cid)) {  // Do not overwrite existing answers.
+                                     data.Add(Answer(uid, cid, answer));
+                                   }
+                                 }
+                               }).Go();
+        }
+      }
+    } catch (const std::bad_cast&) {
+      // `event` is not an `iOSGenericEvent`.
+    }
   }
 };
 
