@@ -69,7 +69,7 @@ TEST(CTFO, SmokeTest) {
   const auto no_auth_feed_response = HTTP(
       GET(Printf("http://localhost:%d/ctfo/feed?uid=%s&token=%s", FLAGS_api_port, golden_uid, golden_token)));
   EXPECT_EQ(401, static_cast<int>(no_auth_feed_response.code));
-  EXPECT_EQ("NEED VALID TOKEN\n", no_auth_feed_response.body);
+  EXPECT_EQ("NEED VALID UID-TOKEN PAIR\n", no_auth_feed_response.body);
 
   const auto no_device_id_auth_response =
       HTTP(POST(Printf("http://localhost:%d/ctfo/auth/ios", FLAGS_api_port, golden_uid, golden_token), ""));

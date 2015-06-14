@@ -87,7 +87,7 @@ class CTFOServer {
         if (device_id.empty() || app_key.empty()) {
           r("NEED VALID ID-KEY PAIR\n", HTTPResponseCode.BadRequest);
         } else {
-          AuthKey auth_key(device_id, app_key, AUTH_TYPE::IOS);
+          AuthKey auth_key("iOS::" + device_id + "::" + app_key, AUTH_TYPE::IOS);
           UID uid = UID::INVALID;
           User user;
           ResponseUserEntry user_entry;
@@ -125,7 +125,10 @@ class CTFOServer {
           } else {  // New user.
             uid = RandomUID();
             user.uid = uid;
-            storage_.Add(user).Go();
+            storage_.Transaction([&user, &auth_key](StorageAPI::T_DATA data) {
+                                   data.Add(user);
+                                   data.Add(AuthKeyUIDPair(auth_key, user.uid));
+                                }).Go();
           }
 
           CopyUserInfoToResponseEntry(user, user_entry);
@@ -143,7 +146,7 @@ class CTFOServer {
         r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
       } else {
         if (uid == UID::INVALID) {
-          r("NEED VALID UID\n", HTTPResponseCode.BadRequest);
+          r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.BadRequest);
         } else {
           bool valid_token = false;
           storage_.Transaction([&uid, &token, &valid_token](StorageAPI::T_DATA data) {
@@ -153,12 +156,14 @@ class CTFOServer {
                                    // if we have more than one `device_id` + `app_key` pair for token.
                                    assert(auth_token_accessor[token].size() == 1);
                                    if (auth_token_accessor[token].begin()->valid) {
-                                     valid_token = true;
+                                     // Double check, if the provided `uid` is correct as well.
+                                     const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
+                                     valid_token = auth_uid_accessor.Has(auth_token_accessor[token].begin().key(), uid);
                                    }
                                  }
                                }).Go();
           if (!valid_token) {
-            r("NEED VALID TOKEN\n", HTTPResponseCode.Unauthorized);
+            r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
           } else {
             const auto user = storage_.Get(uid).Go();
             ResponseUserEntry user_entry;
@@ -242,7 +247,7 @@ class CTFOServer {
   std::vector<std::string> cards_;
 
   const std::map<std::string, ANSWER> valid_answers_ = {
-      {"ctfo", ANSWER::CTFO}, {"tfu", ANSWER::TFU}, {"skip", ANSWER::SKIP}};
+      {"CTFO", ANSWER::CTFO}, {"TFU", ANSWER::TFU}, {"SKIP", ANSWER::SKIP}};
 
   UID RandomUID() { return static_cast<UID>(random_uid_()); }
   CID RandomCID() { return static_cast<CID>(random_cid_()); }
