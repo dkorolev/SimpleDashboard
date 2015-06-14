@@ -99,13 +99,38 @@ TEST(CTFO, SmokeTest) {
   EXPECT_EQ(0u, feed.user.level);
   EXPECT_EQ(0u, feed.user.score);
   EXPECT_EQ(15000u, feed.user.next_level_score);
-  EXPECT_EQ(40u, feed.cards.size());
-  std::unordered_set<std::string> cids;
-  std::unordered_set<std::string> texts;
-  for (const ResponseCardEntry& card : feed.cards) {
-    cids.insert(card.cid);
-    texts.insert(card.text);
+  EXPECT_EQ(40u, feed.hot_cards.size());
+  EXPECT_EQ(40u, feed.recent_cards.size());
+
+  std::unordered_set<std::string> hot_cids;
+  std::unordered_set<std::string> hot_texts;
+  std::unordered_set<std::string> recent_cids;
+  std::unordered_set<std::string> recent_texts;
+  for (const ResponseCardEntry& card : feed.hot_cards) {
+    hot_cids.insert(card.cid);
+    hot_texts.insert(card.text);
   }
-  EXPECT_EQ(40u, cids.size());
-  EXPECT_EQ(40u, texts.size());
+  for (const ResponseCardEntry& card : feed.recent_cards) {
+    recent_cids.insert(card.cid);
+    recent_texts.insert(card.text);
+  }
+  EXPECT_EQ(40u, hot_cids.size());
+  EXPECT_EQ(40u, hot_texts.size());
+  EXPECT_EQ(40u, recent_cids.size());
+  EXPECT_EQ(40u, recent_texts.size());
+
+  std::vector<std::string> cids_intersection;
+  std::set_intersection(hot_cids.begin(),
+                        hot_cids.end(),
+                        recent_cids.begin(),
+                        recent_cids.end(),
+                        std::back_inserter(cids_intersection));
+  EXPECT_EQ(0u, cids_intersection.size());
+  std::vector<std::string> texts_intersection;
+  std::set_intersection(hot_texts.begin(),
+                        hot_texts.end(),
+                        recent_texts.begin(),
+                        recent_texts.end(),
+                        std::back_inserter(texts_intersection));
+  EXPECT_EQ(0u, texts_intersection.size());
 }

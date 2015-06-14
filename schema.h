@@ -67,7 +67,8 @@ struct User : yoda::Padawan {
 };
 
 // AuthKey structure defines generic authentication key.
-// `key` is supposed to be a long string, combined from several parameters (depending on the authentication type) with "::" as a delimiter.
+// `key` is supposed to be a long string, combined from several parameters (depending on the authentication
+// type) with "::" as a delimiter.
 // For `type = AUTH_TYPE::IOS`:
 //   key = "iOS::" + <Device ID> + "::" + <Application Key>
 //   Application key is a random number, generated once in a lifetime in iOS application on its first launch.
@@ -208,13 +209,14 @@ struct ResponseCardEntry {
 
 // Universal response structure, combining user info & cards payload.
 struct ResponseFeed {
-  uint64_t ms;                           // Server timestamp, milliseconds from epoch.
-  ResponseUserEntry user;                // User information.
-  std::vector<ResponseCardEntry> cards;  // Cards feed.
+  uint64_t ms;                                  // Server timestamp, milliseconds from epoch.
+  ResponseUserEntry user;                       // User information.
+  std::vector<ResponseCardEntry> hot_cards;     // "Hot" cards feed.
+  std::vector<ResponseCardEntry> recent_cards;  // "Recent" cards feed.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(cards));
+    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(hot_cards), CEREAL_NVP(recent_cards));
   }
 };
 

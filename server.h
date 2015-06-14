@@ -128,7 +128,7 @@ class CTFOServer {
             storage_.Transaction([&user, &auth_key](StorageAPI::T_DATA data) {
                                    data.Add(user);
                                    data.Add(AuthKeyUIDPair(auth_key, user.uid));
-                                }).Go();
+                                 }).Go();
           }
 
           CopyUserInfoToResponseEntry(user, user_entry);
@@ -158,7 +158,8 @@ class CTFOServer {
                                    if (auth_token_accessor[token].begin()->valid) {
                                      // Double check, if the provided `uid` is correct as well.
                                      const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
-                                     valid_token = auth_uid_accessor.Has(auth_token_accessor[token].begin().key(), uid);
+                                     valid_token =
+                                         auth_uid_accessor.Has(auth_token_accessor[token].begin().key(), uid);
                                    }
                                  }
                                }).Go();
@@ -193,12 +194,8 @@ class CTFOServer {
           }
           std::shuffle(candidates.begin(), candidates.end(), rng_);
 
-          for (size_t i = 0; i < candidates.size() && (max_count ? (i < max_count) : true); ++i) {
-            const CID cid = candidates[i];
-            response.cards.resize(response.cards.size() + 1);
-            ResponseCardEntry& card_entry = response.cards.back();
-            card_entry.cid = CIDToString(cid);
-            const Card& card = data.Get(cid);
+          auto FillResponseCardEntry = [this](ResponseCardEntry& card_entry, const Card& card) {
+            card_entry.cid = CIDToString(card.cid);
             card_entry.text = card.text;
             card_entry.relevance = random_0_1_picker_();
             card_entry.ctfo_score = 50u;
@@ -209,6 +206,20 @@ class CTFOServer {
             } else {
               card_entry.ctfo_percentage = 0.5;
             }
+          };
+
+          for (size_t i = 0; i < candidates.size() / 2 && (max_count ? (i < max_count) : true); ++i) {
+            const CID hot_cid = candidates[i];
+            response.hot_cards.resize(response.hot_cards.size() + 1);
+            ResponseCardEntry& hot_card_entry = response.hot_cards.back();
+            const Card& hot_card = data.Get(hot_cid);
+            FillResponseCardEntry(hot_card_entry, hot_card);
+
+            const CID recent_cid = candidates[candidates.size() / 2 + i];
+            response.recent_cards.resize(response.recent_cards.size() + 1);
+            ResponseCardEntry& recent_card_entry = response.recent_cards.back();
+            const Card& recent_card = data.Get(recent_cid);
+            FillResponseCardEntry(recent_card_entry, recent_card);
           }
 
           response.ms = static_cast<uint64_t>(bricks::time::Now());
