@@ -66,26 +66,24 @@ struct User : yoda::Padawan {
   }
 };
 
-// AuthKey structure defines generic authentication key, which consists of a pair of `std::string`s.
-// `key1` and `key2` may be used in different ways, depending on the authentication type.
+// AuthKey structure defines generic authentication key.
+// `key` is supposed to be a long string, combined from several parameters (depending on the authentication
+// type) with "::" as a delimiter.
 // For `type = AUTH_TYPE::IOS`:
-//  - key1 = Device ID
-//  - key2 = Application key, a random number, generated once in a lifetime in iOS application on its first
-//  launch.
+//   key = "iOS::" + <Device ID> + "::" + <Application Key>
+//   Application key is a random number, generated once in a lifetime in iOS application on its first launch.
 struct AuthKey {
-  std::string key1 = "";
-  std::string key2 = "";
+  std::string key = "";
   AUTH_TYPE type = AUTH_TYPE::UNDEFINED;
 
   AuthKey() = default;
-  AuthKey(const std::string& key1, const std::string& key2, AUTH_TYPE type)
-      : key1(key1), key2(key2), type(type) {}
-  size_t Hash() const { return std::hash<std::string>()(key1) ^ std::hash<std::string>()(key2); }
-  bool operator==(const AuthKey& rhs) const { return key1 == rhs.key1 && key2 == rhs.key2 && type == rhs.type; }
+  AuthKey(const std::string& key, AUTH_TYPE type) : key(key), type(type) {}
+  size_t Hash() const { return std::hash<std::string>()(key); }
+  bool operator==(const AuthKey& rhs) const { return key == rhs.key && type == rhs.type; }
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(key1), CEREAL_NVP(key2), CEREAL_NVP(type));
+    ar(CEREAL_NVP(key), CEREAL_NVP(type));
   }
 };
 
@@ -114,6 +112,9 @@ struct AuthKeyTokenPair : yoda::Padawan {
 struct AuthKeyUIDPair : yoda::Padawan {
   AuthKey auth_key;
   UID uid = UID::INVALID;
+
+  AuthKeyUIDPair() = default;
+  AuthKeyUIDPair(const AuthKey& auth_key, const UID uid) : auth_key(auth_key), uid(uid) {}
 
   const AuthKey& row() const { return auth_key; }
   void set_row(const AuthKey& value) { auth_key = value; }
@@ -206,15 +207,17 @@ struct ResponseCardEntry {
   }
 };
 
+const std::vector<std::string> FEED_NAMES{"hot", "recent"};
+
 // Universal response structure, combining user info & cards payload.
 struct ResponseFeed {
-  uint64_t ms;                           // Server timestamp, milliseconds from epoch.
-  ResponseUserEntry user;                // User information.
-  std::vector<ResponseCardEntry> cards;  // Cards feed.
+  uint64_t ms;                                                  // Server timestamp, milliseconds from epoch.
+  ResponseUserEntry user;                                       // User information.
+  std::map<std::string, std::vector<ResponseCardEntry>> feeds;  // Named card feeds.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(cards));
+    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(feeds));
   }
 };
 
