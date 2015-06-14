@@ -372,12 +372,12 @@ class CTFOServer {
                 if (token_is_valid) {
                   if (!data.Has(uid)) {
                     DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent UID '%s' in answer.",
-                                      UIDToString(uid).c_str()));
+                                      ge.fields.at("uid")));
                     return;
                   }
                   if (!data.Has(cid)) {
                     DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent CID '%s' in answer.",
-                                      CIDToString(cid).c_str()));
+                                      ge.fields.at("cid")));
                     return;
                   }
                   auto answers_mutator = Matrix<Answer>::Mutator(data);
