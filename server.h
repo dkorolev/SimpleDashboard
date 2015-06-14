@@ -355,10 +355,12 @@ class CTFOServer {
         const ANSWER answer = valid_answers_.at(ge.event);
         const UID uid = StringToUID(ge.fields.at("uid"));
         const CID cid = StringToCID(ge.fields.at("cid"));
+        const std::string& uid_str = ge.fields.at("uid");
+        const std::string& cid_str = ge.fields.at("cid");
         const std::string token = ge.fields.at("token");
         if (uid != UID::INVALID && cid != CID::INVALID) {
           storage_
-              .Transaction([this, &uid, &cid, &token, &answer](StorageAPI::T_DATA data) {
+              .Transaction([this, &uid, &cid, &uid_str, &cid_str, &token, &answer](StorageAPI::T_DATA data) {
                 const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
                 bool token_is_valid = false;
                 if (auth_token_accessor.Cols().Has(token)) {
@@ -371,13 +373,11 @@ class CTFOServer {
                 }
                 if (token_is_valid) {
                   if (!data.Has(uid)) {
-                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent UID '%s' in answer.",
-                                      ge.fields.at("uid")));
+                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent UID '%s' in answer.", uid_str.c_str()));
                     return;
                   }
                   if (!data.Has(cid)) {
-                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent CID '%s' in answer.",
-                                      ge.fields.at("cid")));
+                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent CID '%s' in answer.", cid_str.c_str()));
                     return;
                   }
                   auto answers_mutator = Matrix<Answer>::Mutator(data);
