@@ -171,7 +171,7 @@ class CTFOServer {
         r("METHOD NOT ALLOWED\n", HTTPResponseCode.MethodNotAllowed);
       } else {
         if (uid == UID::INVALID) {
-          DebugPrint(Printf("[/ctfo/auth/ios] Wrong UID. Requested URL = '%s'", r.url.ComposeURL().c_str()));
+          DebugPrint(Printf("[/ctfo/feed] Wrong UID. Requested URL = '%s'", r.url.ComposeURL().c_str()));
           r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.BadRequest);
         } else {
           const bool token_is_valid =
@@ -193,11 +193,11 @@ class CTFOServer {
                                    }).Go();
           if (!token_is_valid) {
             DebugPrint(
-                Printf("[/ctfo/auth/ios] Invalid token. Requested URL = '%s'", r.url.ComposeURL().c_str()));
+                Printf("[/ctfo/feed] Invalid token. Requested URL = '%s'", r.url.ComposeURL().c_str()));
             r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
           } else {
             DebugPrint(
-                Printf("[/ctfo/auth/ios] Token validated. Requested URL = '%s'", r.url.ComposeURL().c_str()));
+                Printf("[/ctfo/feed] Token validated. Requested URL = '%s'", r.url.ComposeURL().c_str()));
             const auto user = storage_.Get(uid).Go();
             ResponseUserEntry user_entry;
             CopyUserInfoToResponseEntry(user, user_entry);
