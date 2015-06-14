@@ -40,6 +40,7 @@ DEFINE_string(event_log_file,
               "Log file to store events received by event collector server.");
 DEFINE_int32(rand_seed, 42, "The answer to the question of life, universe and everything.");
 DEFINE_int32(tick_interval_ms, 5 * 60 * 1000, "Maximum interval between event entries.");
+DEFINE_bool(debug_print, true, "Print debug info to stderr.");
 
 int main(int argc, char **argv) {
   ParseDFlags(&argc, &argv);
@@ -47,5 +48,6 @@ int main(int argc, char **argv) {
              FLAGS_port,
              FLAGS_event_log_port,
              FLAGS_event_log_file,
-             static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms)).Join();
+             static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms),
+             FLAGS_debug_print).Join();
 }

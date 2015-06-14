@@ -207,16 +207,17 @@ struct ResponseCardEntry {
   }
 };
 
+const std::vector<std::string> FEED_NAMES{"hot", "recent"};
+
 // Universal response structure, combining user info & cards payload.
 struct ResponseFeed {
-  uint64_t ms;                                  // Server timestamp, milliseconds from epoch.
-  ResponseUserEntry user;                       // User information.
-  std::vector<ResponseCardEntry> hot_cards;     // "Hot" cards feed.
-  std::vector<ResponseCardEntry> recent_cards;  // "Recent" cards feed.
+  uint64_t ms;                                                  // Server timestamp, milliseconds from epoch.
+  ResponseUserEntry user;                                       // User information.
+  std::map<std::string, std::vector<ResponseCardEntry>> feeds;  // Named card feeds.
 
   template <typename A>
   void serialize(A& ar) {
-    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(hot_cards), CEREAL_NVP(recent_cards));
+    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(feeds));
   }
 };
 
