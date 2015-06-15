@@ -192,8 +192,7 @@ class CTFOServer {
                                      return token_is_valid;
                                    }).Go();
           if (!token_is_valid) {
-            DebugPrint(
-                Printf("[/ctfo/feed] Invalid token. Requested URL = '%s'", r.url.ComposeURL().c_str()));
+            DebugPrint(Printf("[/ctfo/feed] Invalid token. Requested URL = '%s'", r.url.ComposeURL().c_str()));
             r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
           } else {
             DebugPrint(
@@ -210,9 +209,12 @@ class CTFOServer {
   }
 
   void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
+    const bool use_old_json_format = (r.url.query["old_json"] == "yes");
     storage_.Transaction(
-        [this, user_entry, max_count](StorageAPI::T_DATA data) {
+        [this, user_entry, max_count, use_old_json_format](StorageAPI::T_DATA data) {
           ResponseFeed response;
+          response.use_old_json_format = use_old_json_format;
+
           response.user = user_entry;
 
           std::vector<CID> candidates;
