@@ -207,31 +207,16 @@ struct ResponseCardEntry {
   }
 };
 
-const std::vector<std::string> FEED_NAMES{"hot", "recent"};
-
 // Universal response structure, combining user info & cards payload.
 struct ResponseFeed {
-  uint64_t ms;                                                  // Server timestamp, milliseconds from epoch.
-  ResponseUserEntry user;                                       // User information.
-  std::map<std::string, std::vector<ResponseCardEntry>> feeds;  // Named card feeds.
-
-  bool use_old_json_format = false;  // A quick hack to keep the unit test passing.
-
-  template <typename A>
-  void save(A& ar) const {
-    if (use_old_json_format) {
-      ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(feeds));
-    } else {
-      ar(CEREAL_NVP(ms), CEREAL_NVP(user));
-      for (const auto& cit : feeds) {
-        ar(cereal::make_nvp("feed_" + cit.first, cit.second));
-      }
-    }
-  }
+  uint64_t ms;                                 // Server timestamp, milliseconds from epoch.
+  ResponseUserEntry user;                      // User information.
+  std::vector<ResponseCardEntry> feed_hot;     // "Hot" cards feeds.
+  std::vector<ResponseCardEntry> feed_recent;  // "Recent" cards feeds.
 
   template <typename A>
-  void load(A& ar) {
-    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(feeds));
+  void serialize(A& ar) {
+    ar(CEREAL_NVP(ms), CEREAL_NVP(user), CEREAL_NVP(feed_hot), CEREAL_NVP(feed_recent));
   }
 };
 

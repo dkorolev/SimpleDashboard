@@ -209,12 +209,9 @@ class CTFOServer {
   }
 
   void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
-    const bool use_old_json_format = (r.url.query["old_json"] == "yes");
     storage_.Transaction(
-        [this, user_entry, max_count, use_old_json_format](StorageAPI::T_DATA data) {
+        [this, user_entry, max_count](StorageAPI::T_DATA data) {
           ResponseFeed response;
-          response.use_old_json_format = use_old_json_format;
-
           response.user = user_entry;
 
           std::vector<CID> candidates;
@@ -244,8 +241,11 @@ class CTFOServer {
             return card_entry;
           };
 
+          std::vector<std::reference_wrapper<std::vector<ResponseCardEntry>>> feeds;
+          feeds.push_back(response.feed_hot);
+          feeds.push_back(response.feed_recent);
           for (size_t i = 0; i < candidates.size() && (max_count ? (i < max_count * 2) : true); ++i) {
-            auto& feed = response.feeds[FEED_NAMES[i % 2]];
+            auto& feed = feeds[i % 2].get();
             const CID cid = candidates[i];
             feed.push_back(GenerateCardForFeed(data.Get(cid)));
           }
@@ -254,8 +254,8 @@ class CTFOServer {
           DebugPrint(
               Printf("[RespondWithFeed] Generated response for UID '%s' with %u 'hot' and %u 'recent' cards",
                      response.user.uid.c_str(),
-                     response.feeds["hot"].size(),
-                     response.feeds["recent"].size()));
+                     response.feed_hot.size(),
+                     response.feed_recent.size()));
           return response;
         },
         std::move(r));
