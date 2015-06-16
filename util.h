@@ -33,14 +33,14 @@ SOFTWARE.
 using namespace bricks::random;
 using namespace bricks::strings;
 
-static constexpr uint64_t id_range_ = static_cast<uint64_t>(1e18);
+static constexpr uint64_t ID_RANGE = static_cast<uint64_t>(1e18);
 
-inline UID RandomUID() { return static_cast<UID>(RandomUInt64(1 * id_range_ + 1, 2 * id_range_ - 1)); }
+inline UID RandomUID() { return static_cast<UID>(RandomUInt64(1 * ID_RANGE + 1, 2 * ID_RANGE - 1)); }
 
-inline CID RandomCID() { return static_cast<CID>(RandomUInt64(2 * id_range_ + 1, 3 * id_range_ - 1)); }
+inline CID RandomCID() { return static_cast<CID>(RandomUInt64(2 * ID_RANGE + 1, 3 * ID_RANGE - 1)); }
 
 inline std::string RandomToken() {
-  return bricks::strings::Printf("t%020llu", RandomUInt64(3 * id_range_ + 1, 4 * id_range_ - 1));
+  return bricks::strings::Printf("t%020llu", RandomUInt64(3 * ID_RANGE + 1, 4 * ID_RANGE - 1));
 }
 
 inline std::string UIDToString(const UID uid) {
