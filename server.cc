@@ -44,8 +44,8 @@ DEFINE_bool(debug_print, true, "Print debug info to stderr.");
 
 int main(int argc, char **argv) {
   ParseDFlags(&argc, &argv);
-  CTFOServer(FLAGS_rand_seed,
-             FLAGS_port,
+  bricks::random::SetSeed(FLAGS_rand_seed);
+  CTFOServer(FLAGS_port,
              FLAGS_event_log_port,
              FLAGS_event_log_file,
              static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms),

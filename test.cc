@@ -45,11 +45,9 @@ TEST(CTFO, SmokeTest) {
   const std::string log_file = bricks::FileSystem::GenTmpFileName();
   bricks::FileSystem::ScopedRmFile scoped_rmfile(log_file);
 
-  CTFOServer server(42,
-                    FLAGS_api_port,
-                    FLAGS_event_log_port,
-                    log_file,
-                    static_cast<bricks::time::MILLISECONDS_INTERVAL>(100));
+  bricks::random::SetSeed(42);
+  CTFOServer server(
+      FLAGS_api_port, FLAGS_event_log_port, log_file, static_cast<bricks::time::MILLISECONDS_INTERVAL>(100));
   bricks::time::SetNow(static_cast<bricks::time::EPOCH_MILLISECONDS>(123));
 
   const std::string auth_id_str = "A_BUNCH_OF_DIGITS";
