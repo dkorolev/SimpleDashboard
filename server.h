@@ -34,30 +34,30 @@ SOFTWARE.
 #include <vector>
 
 #include "../Current/Bricks/file/file.h"
-#include "../Current/Bricks/strings/printf.h"
-#include "../Current/Bricks/strings/split.h"
 #include "../Current/Bricks/net/api/api.h"
+#include "../Current/Bricks/strings/strings.h"
+#include "../Current/Bricks/util/random.h"
 
 #include "../Current/EventCollector/event_collector.h"
 
 #include "schema.h"
+#include "util.h"
 
 // Structured iOS events.
 #include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
 
 using namespace yoda;
+using namespace bricks::random;
 using namespace bricks::strings;
 
 class CTFOServer {
  public:
-  explicit CTFOServer(int rand_seed,
-                      int port,
+  explicit CTFOServer(int port,
                       int event_log_port,
                       const std::string& event_log_file,
                       const bricks::time::MILLISECONDS_INTERVAL tick_interval_ms,
                       const bool debug_print_to_stderr = false)
-      : rng_(rand_seed),
-        port_(port),
+      : port_(port),
         event_log_file_(event_log_file),
         event_collector_(event_log_port ? event_log_port : port,
                          event_log_stream_,
@@ -77,9 +77,9 @@ class CTFOServer {
           cid = RandomCID();
         } while (data.Has(cid));
         Card card(cid, text);
-        card.ctfo_count = random_10_99_picker_();
-        card.tfu_count = random_10_99_picker_();
-        card.skip_count = random_10_99_picker_();
+        card.ctfo_count = RandomInt(10, 99);
+        card.tfu_count = RandomInt(10, 99);
+        card.skip_count = RandomInt(10, 99);
         data.Add(card);
       }
     });
@@ -105,7 +105,7 @@ class CTFOServer {
           std::string token;
 
           // Searching for users with the corresponding authentication key.
-          storage_.Transaction([this, &uid, &auth_key, &user, &token](StorageAPI::T_DATA data) {
+          storage_.Transaction([&uid, &auth_key, &user, &token](StorageAPI::T_DATA data) {
                                  const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
                                  if (auth_uid_accessor.Rows().Has(auth_key)) {
                                    // Something went terribly wrong
@@ -209,12 +209,9 @@ class CTFOServer {
   }
 
   void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
-    const bool use_old_json_format = (r.url.query["old_json"] == "yes");
     storage_.Transaction(
-        [this, user_entry, max_count, use_old_json_format](StorageAPI::T_DATA data) {
+        [this, user_entry, max_count](StorageAPI::T_DATA data) {
           ResponseFeed response;
-          response.use_old_json_format = use_old_json_format;
-
           response.user = user_entry;
 
           std::vector<CID> candidates;
@@ -226,13 +223,13 @@ class CTFOServer {
               candidates.push_back(card.cid);
             }
           }
-          std::shuffle(candidates.begin(), candidates.end(), rng_);
+          std::shuffle(candidates.begin(), candidates.end(), mt19937_64_tls());
 
           auto GenerateCardForFeed = [this](const Card& card) {
             ResponseCardEntry card_entry;
             card_entry.cid = CIDToString(card.cid);
             card_entry.text = card.text;
-            card_entry.relevance = random_0_1_picker_();
+            card_entry.relevance = RandomDouble(0, 1);
             card_entry.ctfo_score = 50u;
             card_entry.tfu_score = 50u;
             const uint64_t total_answers = card.ctfo_count + card.tfu_count;
@@ -244,8 +241,11 @@ class CTFOServer {
             return card_entry;
           };
 
+          std::vector<std::reference_wrapper<std::vector<ResponseCardEntry>>> feeds;
+          feeds.push_back(response.feed_hot);
+          feeds.push_back(response.feed_recent);
           for (size_t i = 0; i < candidates.size() && (max_count ? (i < max_count * 2) : true); ++i) {
-            auto& feed = response.feeds[FEED_NAMES[i % 2]];
+            auto& feed = feeds[i % 2].get();
             const CID cid = candidates[i];
             feed.push_back(GenerateCardForFeed(data.Get(cid)));
           }
@@ -254,8 +254,8 @@ class CTFOServer {
           DebugPrint(
               Printf("[RespondWithFeed] Generated response for UID '%s' with %u 'hot' and %u 'recent' cards",
                      response.user.uid.c_str(),
-                     response.feeds["hot"].size(),
-                     response.feeds["recent"].size()));
+                     response.feed_hot.size(),
+                     response.feed_recent.size()));
           return response;
         },
         std::move(r));
@@ -264,24 +264,11 @@ class CTFOServer {
   void Join() { HTTP(port_).Join(); }
 
  private:
-  std::mt19937_64 rng_;
   const int port_;
   const std::string event_log_file_;
   std::ofstream event_log_stream_;
   EventCollectorHTTPServer event_collector_;
   const bool debug_print_;
-
-  static constexpr uint64_t id_range_ = static_cast<uint64_t>(1e18);
-  std::function<uint64_t()> random_uid_ =
-      std::bind(std::uniform_int_distribution<uint64_t>(1 * id_range_, 2 * id_range_ - 1), std::ref(rng_));
-  std::function<uint64_t()> random_cid_ =
-      std::bind(std::uniform_int_distribution<uint64_t>(2 * id_range_, 3 * id_range_ - 1), std::ref(rng_));
-  std::function<uint64_t()> random_token_ =
-      std::bind(std::uniform_int_distribution<uint64_t>(3 * id_range_, 4 * id_range_ - 1), std::ref(rng_));
-  std::function<double()> random_0_1_picker_ =
-      std::bind(std::uniform_real_distribution<double>(0.0, 1.0), std::ref(rng_));
-  std::function<int()> random_10_99_picker_ =
-      std::bind(std::uniform_int_distribution<int>(10, 99), std::ref(rng_));
 
   typedef API<Dictionary<User>,
               Matrix<AuthKeyTokenPair>,
@@ -298,28 +285,6 @@ class CTFOServer {
     if (debug_print_) {
       std::cerr << message << std::endl;
     }
-  }
-
-  UID RandomUID() { return static_cast<UID>(random_uid_()); }
-  CID RandomCID() { return static_cast<CID>(random_cid_()); }
-  std::string RandomToken() { return bricks::strings::Printf("t%020llu", random_token_()); }
-
-  std::string UIDToString(UID uid) { return bricks::strings::Printf("u%020llu", static_cast<uint64_t>(uid)); }
-
-  static UID StringToUID(const std::string& s) {
-    if (s.length() == 21 && s[0] == 'u') {  // 'u' + 20 digits of `uint64_t` decimal representation.
-      return static_cast<UID>(FromString<uint64_t>(s.substr(1)));
-    }
-    return UID::INVALID;
-  }
-
-  std::string CIDToString(CID cid) { return bricks::strings::Printf("c%020llu", static_cast<uint64_t>(cid)); }
-
-  static CID StringToCID(const std::string& s) {
-    if (s.length() == 21 && s[0] == 'c') {  // 'c' + 20 digits of `uint64_t` decimal representation.
-      return static_cast<CID>(FromString<uint64_t>(s.substr(1)));
-    }
-    return CID::INVALID;
   }
 
   void CopyUserInfoToResponseEntry(const User& user, ResponseUserEntry& entry) {
@@ -345,7 +310,7 @@ class CTFOServer {
     } else {
       if (entry.m != "TICK") {
         DebugPrint(Printf(
-            "[OnMidichloriansEvent] Suspicious event with method '%s' (t = %ull)", entry.m.c_str(), entry.t));
+            "[OnMidichloriansEvent] Suspicious event with method '%s' (t = %llu)", entry.m.c_str(), entry.t));
       }
     }
   }
