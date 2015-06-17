@@ -22,9 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 *******************************************************************************/
 
-#ifndef CTFO_CONVERT_CARDS_H
-#define CTFO_CONVERT_CARDS_H
-
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/file/file.h"
 #include "../Current/Bricks/strings/strings.h"
@@ -41,12 +38,7 @@ DEFINE_string(in, "cards.txt", "Default input file in raw text format.");
 DEFINE_string(out, "cards.json", "Default output file in JSON format.");
 
 CID CIDByHash(const std::string& text) {
-  const uint64_t* ptr = reinterpret_cast<const uint64_t*>(text.c_str());
-  uint64_t hash = 0u;
-  for (size_t i = 0; i < text.size() / sizeof(uint64_t); ++i, ++ptr) {
-    hash += *ptr;
-  }
-  CID cid = static_cast<CID>(hash % ID_RANGE + 2 * ID_RANGE);
+  CID cid = static_cast<CID>(std::hash<std::string>()(text) % ID_RANGE + 2 * ID_RANGE);
   return cid;
 }
 
@@ -55,9 +47,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> raw_cards;
   try {
     raw_cards = Split<ByLines>(bricks::FileSystem::ReadFileAsString(FLAGS_in));
-  } catch (bricks::CannotReadFileException& e) {
+  } catch (const bricks::CannotReadFileException& e) {
     std::cerr << "Unable to read file '" << FLAGS_in << "': " << e.what() << std::endl;
-    exit(-1);
+    return -1;
   }
   bricks::cerealize::CerealFileAppender<bricks::cerealize::CerealFormat::JSON> out_json(FLAGS_out);
   std::set<CID> cids;
@@ -72,9 +64,6 @@ int main(int argc, char** argv) {
     } while (cids.find(cid) != cids.end());
     cids.insert(cid);
 
-    Card card(cid, text);
-    out_json << card;
+    out_json << Card(cid, text);
   }
 }
-
-#endif  // CTFO_CONVERT_CARDS_H
