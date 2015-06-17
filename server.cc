@@ -33,6 +33,7 @@ CEREAL_REGISTER_TYPE(AuthKeyUIDPair);
 CEREAL_REGISTER_TYPE(Card);
 CEREAL_REGISTER_TYPE(Answer);
 
+DEFINE_string(cards_file, "cards.json", "Cards data file in JSON format.");
 DEFINE_int32(port, 8383, "Port to spawn CTFO RESTful server on.");
 DEFINE_int32(event_log_port, 0, "Port to spawn event collector on.");  // 0 = the same as `port`.
 DEFINE_string(event_log_file,
@@ -45,7 +46,8 @@ DEFINE_bool(debug_print, true, "Print debug info to stderr.");
 int main(int argc, char **argv) {
   ParseDFlags(&argc, &argv);
   bricks::random::SetSeed(FLAGS_rand_seed);
-  CTFOServer(FLAGS_port,
+  CTFOServer(FLAGS_cards_file,
+             FLAGS_port,
              FLAGS_event_log_port,
              FLAGS_event_log_file,
              static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms),

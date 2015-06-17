@@ -52,7 +52,8 @@ using namespace bricks::strings;
 
 class CTFOServer {
  public:
-  explicit CTFOServer(int port,
+  explicit CTFOServer(const std::string& cards_file,
+                      int port,
                       int event_log_port,
                       const std::string& event_log_file,
                       const bricks::time::MILLISECONDS_INTERVAL tick_interval_ms,
@@ -66,20 +67,16 @@ class CTFOServer {
                          "OK\n",
                          std::bind(&CTFOServer::OnMidichloriansEvent, this, std::placeholders::_1)),
         debug_print_(debug_print_to_stderr),
-        storage_("CTFO storage"),
-        cards_(Split<ByLines>(bricks::FileSystem::ReadFileAsString("cards.txt"))) {
+        storage_("CTFO storage") {
     event_log_stream_.open(event_log_file_, std::ofstream::out | std::ofstream::app);
 
-    storage_.Transaction([this](StorageAPI::T_DATA data) {
-      for (const auto& text : cards_) {
-        CID cid;
-        do {
-          cid = RandomCID();
-        } while (data.Has(cid));
-        Card card(cid, text);
-        card.ctfo_count = RandomInt(10, 99);
-        card.tfu_count = RandomInt(10, 99);
-        card.skip_count = RandomInt(10, 99);
+    std::vector<Card> cards;
+    bricks::cerealize::CerealFileParser<Card, bricks::cerealize::CerealFormat::JSON> f(cards_file);
+    while (f.Next([&cards](const Card& card) { cards.push_back(card); }))
+      ;
+    storage_.Transaction([&cards](StorageAPI::T_DATA data) {
+      for (const Card& card : cards) {
+        std::cout << card.text << std::endl;
         data.Add(card);
       }
     });
@@ -276,7 +273,6 @@ class CTFOServer {
               Dictionary<Card>,
               Matrix<Answer>> StorageAPI;
   StorageAPI storage_;
-  std::vector<std::string> cards_;
 
   const std::map<std::string, ANSWER> valid_answers_ = {
       {"CTFO", ANSWER::CTFO}, {"TFU", ANSWER::TFU}, {"SKIP", ANSWER::SKIP}};
