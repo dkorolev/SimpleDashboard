@@ -38,6 +38,7 @@ CEREAL_REGISTER_TYPE(AuthKeyUIDPair);
 CEREAL_REGISTER_TYPE(Card);
 CEREAL_REGISTER_TYPE(Answer);
 
+DEFINE_string(cards_file, "cards.json", "Cards data file in JSON format.");
 DEFINE_int32(api_port, 8383, "Port to spawn CTFO RESTful server on.");
 DEFINE_int32(event_log_port, 8384, "Port to spawn event collector on.");
 
@@ -46,8 +47,11 @@ TEST(CTFO, SmokeTest) {
   bricks::FileSystem::ScopedRmFile scoped_rmfile(log_file);
 
   bricks::random::SetSeed(42);
-  CTFOServer server(
-      FLAGS_api_port, FLAGS_event_log_port, log_file, static_cast<bricks::time::MILLISECONDS_INTERVAL>(100));
+  CTFOServer server(FLAGS_cards_file,
+                    FLAGS_api_port,
+                    FLAGS_event_log_port,
+                    log_file,
+                    static_cast<bricks::time::MILLISECONDS_INTERVAL>(100));
   bricks::time::SetNow(static_cast<bricks::time::EPOCH_MILLISECONDS>(123));
 
   const std::string auth_id_str = "A_BUNCH_OF_DIGITS";

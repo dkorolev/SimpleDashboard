@@ -2,7 +2,6 @@
 The MIT License (MIT)
 
 Copyright (c) 2015 Maxim Zhurovich <zhurovich@gmail.com>
-          (c) 2015 Dmitry "Dima" Korolev <dmitry.korolev@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,33 +22,48 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 *******************************************************************************/
 
-#include "server.h"
-
 #include "../Current/Bricks/dflags/dflags.h"
+#include "../Current/Bricks/file/file.h"
+#include "../Current/Bricks/strings/strings.h"
+#include "../Current/Bricks/util/random.h"
 
-CEREAL_REGISTER_TYPE(User);
-CEREAL_REGISTER_TYPE(AuthKeyTokenPair);
-CEREAL_REGISTER_TYPE(AuthKeyUIDPair);
+#include "util.h"
+#include "schema.h"
+
 CEREAL_REGISTER_TYPE(Card);
-CEREAL_REGISTER_TYPE(Answer);
 
-DEFINE_string(cards_file, "cards.json", "Cards data file in JSON format.");
-DEFINE_int32(port, 8383, "Port to spawn CTFO RESTful server on.");
-DEFINE_int32(event_log_port, 0, "Port to spawn event collector on.");  // 0 = the same as `port`.
-DEFINE_string(event_log_file,
-              "./ctfo_events.log",
-              "Log file to store events received by event collector server.");
-DEFINE_int32(rand_seed, 42, "The answer to the question of life, universe and everything.");
-DEFINE_int32(tick_interval_ms, 5 * 60 * 1000, "Maximum interval between event entries.");
-DEFINE_bool(debug_print, true, "Print debug info to stderr.");
+using namespace bricks::strings;
 
-int main(int argc, char **argv) {
+DEFINE_string(in, "cards.txt", "Default input file in raw text format.");
+DEFINE_string(out, "cards.json", "Default output file in JSON format.");
+
+CID CIDByHash(const std::string& text) {
+  CID cid = static_cast<CID>(std::hash<std::string>()(text) % ID_RANGE + 2 * ID_RANGE);
+  return cid;
+}
+
+int main(int argc, char** argv) {
   ParseDFlags(&argc, &argv);
-  bricks::random::SetSeed(FLAGS_rand_seed);
-  CTFOServer(FLAGS_cards_file,
-             FLAGS_port,
-             FLAGS_event_log_port,
-             FLAGS_event_log_file,
-             static_cast<bricks::time::MILLISECONDS_INTERVAL>(FLAGS_tick_interval_ms),
-             FLAGS_debug_print).Join();
+  std::vector<std::string> raw_cards;
+  try {
+    raw_cards = Split<ByLines>(bricks::FileSystem::ReadFileAsString(FLAGS_in));
+  } catch (const bricks::CannotReadFileException& e) {
+    std::cerr << "Unable to read file '" << FLAGS_in << "': " << e.what() << std::endl;
+    return -1;
+  }
+  bricks::cerealize::CerealFileAppender<bricks::cerealize::CerealFormat::JSON> out_json(FLAGS_out);
+  std::set<CID> cids;
+
+  for (auto& text : raw_cards) {
+    // Generate unique CID.
+    CID cid;
+    std::string addition = "";
+    do {
+      cid = CIDByHash(text + addition);
+      addition += " ";
+    } while (cids.find(cid) != cids.end());
+    cids.insert(cid);
+
+    out_json << Card(cid, text);
+  }
 }
