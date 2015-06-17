@@ -72,14 +72,14 @@ class CTFOServer {
 
     std::vector<Card> cards;
     bricks::cerealize::CerealFileParser<Card, bricks::cerealize::CerealFormat::JSON> f(cards_file);
-    while (f.Next([&cards](const Card& card) { cards.push_back(card); }))
+    while (f.Next([&cards](const Card& card) { cards.push_back(card); })) {
       ;
+    }
     storage_.Transaction([&cards](StorageAPI::T_DATA data) {
       for (const Card& card : cards) {
-        std::cout << card.text << std::endl;
         data.Add(card);
       }
-    });
+    }).Go();
 
     HTTP(port_).Register("/ctfo/auth/ios", [this](Request r) {
       if (r.method != "POST") {
