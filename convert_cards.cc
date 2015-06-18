@@ -25,7 +25,6 @@ SOFTWARE.
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/file/file.h"
 #include "../Current/Bricks/strings/strings.h"
-#include "../Current/Bricks/util/random.h"
 
 #include "util.h"
 #include "schema.h"
@@ -54,7 +53,7 @@ int main(int argc, char** argv) {
   bricks::cerealize::CerealFileAppender<bricks::cerealize::CerealFormat::JSON> out_json(FLAGS_out);
   std::set<CID> cids;
 
-  for (auto& text : raw_cards) {
+  for (const auto& text : raw_cards) {
     // Generate unique CID.
     CID cid;
     std::string addition = "";
