@@ -26,13 +26,6 @@ SOFTWARE.
 #ifndef CTFO_SERVER_H
 #define CTFO_SERVER_H
 
-#include <cassert>
-#include <cstdlib>
-#include <functional>
-#include <random>
-#include <string>
-#include <vector>
-
 #include "../Current/Bricks/file/file.h"
 #include "../Current/Bricks/net/api/api.h"
 #include "../Current/Bricks/strings/strings.h"
@@ -91,65 +84,67 @@ class CTFOServer {
                             r.url.ComposeURL().c_str()));
           r("NEED VALID ID-KEY PAIR\n", HTTPResponseCode.BadRequest);
         } else {
-          AuthKey auth_key("iOS::" + device_id + "::" + app_key, AUTH_TYPE::IOS);
-          UID uid = UID::INVALID;
-          User user;
-          ResponseUserEntry user_entry;
-          std::string token;
-
+          const size_t feed_count = FromString<size_t>(r.url.query.get("feed_count", "20"));
           // Searching for users with the corresponding authentication key.
-          storage_.Transaction([&uid, &auth_key, &user, &token](StorageAPI::T_DATA data) {
-                                 const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
-                                 if (auth_uid_accessor.Rows().Has(auth_key)) {
-                                   // Something went terribly wrong
-                                   // if we have more than one UID for authentication key.
-                                   assert(auth_uid_accessor[auth_key].size() == 1);
-                                   uid = auth_uid_accessor[auth_key].begin()->uid;
-                                 }
+          storage_.Transaction(
+              [this, device_id, app_key, feed_count](StorageAPI::T_DATA data) {
+                AuthKey auth_key("iOS::" + device_id + "::" + app_key, AUTH_TYPE::IOS);
+                UID uid = UID::INVALID;
+                User user;
+                ResponseUserEntry user_entry;
+                std::string token;
 
-                                 auto auth_token_mutator = Matrix<AuthKeyTokenPair>::Mutator(data);
-                                 if (uid != UID::INVALID) {
-                                   // User exists => invalidate all tokens.
-                                   for (const auto& auth_token : auth_token_mutator[auth_key]) {
-                                     auth_token_mutator.Add(
-                                         AuthKeyTokenPair(auth_key, auth_token.token, false));
-                                   }
-                                   user = data.Get(uid);
-                                 }
+                const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
+                if (auth_uid_accessor.Rows().Has(auth_key)) {
+                  // Something went terribly wrong
+                  // if we have more than one UID for authentication key.
+                  assert(auth_uid_accessor[auth_key].size() == 1);
+                  uid = auth_uid_accessor[auth_key].begin()->uid;
+                }
 
-                                 // Generate a new token.
-                                 do {
-                                   token = RandomToken();
-                                 } while (auth_token_mutator.Cols().Has(token));
-                                 auth_token_mutator.Add(AuthKeyTokenPair(auth_key, token, true));
-                               }).Go();
+                auto auth_token_mutator = Matrix<AuthKeyTokenPair>::Mutator(data);
+                if (uid != UID::INVALID) {
+                  // User exists => invalidate all tokens.
+                  for (const auto& auth_token : auth_token_mutator[auth_key]) {
+                    auth_token_mutator.Add(AuthKeyTokenPair(auth_key, auth_token.token, false));
+                  }
+                  user = data.Get(uid);
+                }
 
-          if (uid != UID::INVALID) {  // Existing user.
-            user_entry.score = user.score;
-            DebugPrint(
-                Printf("[/ctfo/auth/ios] Existing user: UID='%s', DeviceID='%s', AppKey='%s', Token='%s'",
-                       UIDToString(uid).c_str(),
-                       device_id.c_str(),
-                       app_key.c_str(),
-                       token.c_str()));
-          } else {  // New user.
-            uid = RandomUID();
-            user.uid = uid;
-            storage_.Transaction([&user, &auth_key](StorageAPI::T_DATA data) {
-                                   data.Add(user);
-                                   data.Add(AuthKeyUIDPair(auth_key, user.uid));
-                                 }).Go();
-            DebugPrint(Printf("[/ctfo/auth/ios] New user: UID='%s', DeviceID='%s', AppKey='%s', Token='%s'",
-                              UIDToString(uid).c_str(),
-                              device_id.c_str(),
-                              app_key.c_str(),
-                              token.c_str()));
-          }
+                // Generate a new token.
+                do {
+                  token = RandomToken();
+                } while (auth_token_mutator.Cols().Has(token));
+                auth_token_mutator.Add(AuthKeyTokenPair(auth_key, token, true));
 
-          CopyUserInfoToResponseEntry(user, user_entry);
-          user_entry.token = token;
+                if (uid != UID::INVALID) {  // Existing user.
+                  user_entry.score = user.score;
+                  DebugPrint(
+                      Printf("[/ctfo/auth/ios] Existing user: UID='%s', DeviceID='%s', AppKey='%s', Token='%s'",
+                             UIDToString(uid).c_str(),
+                             device_id.c_str(),
+                             app_key.c_str(),
+                             token.c_str()));
+                } else {  // New user.
+                  uid = RandomUID();
+                  user.uid = uid;
+                  data.Add(user);
+                  data.Add(AuthKeyUIDPair(auth_key, user.uid));
+                }
+                DebugPrint(Printf("[/ctfo/auth/ios] New user: UID='%s', DeviceID='%s', AppKey='%s', Token='%s'",
+                                  UIDToString(uid).c_str(),
+                                  device_id.c_str(),
+                                  app_key.c_str(),
+                                  token.c_str()));
 
-          RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")), std::move(r));
+                CopyUserInfoToResponseEntry(user, user_entry);
+                user_entry.token = token;
+
+                ResponseFeed rfeed;
+                GenerateResponseFeed(data, user_entry, feed_count, rfeed);
+                return Response(rfeed);
+              },
+              std::move(r));
         }
       }
     });
@@ -167,91 +162,41 @@ class CTFOServer {
           DebugPrint(Printf("[/ctfo/feed] Wrong UID. Requested URL = '%s'", r.url.ComposeURL().c_str()));
           r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.BadRequest);
         } else {
-          const bool token_is_valid =
-              storage_.Transaction([&uid, &token](StorageAPI::T_DATA data) {
-                                     bool token_is_valid = false;
-                                     const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
-                                     if (auth_token_accessor.Cols().Has(token)) {
-                                       // Something went terribly wrong
-                                       // if we have more than one authentication key for token.
-                                       assert(auth_token_accessor[token].size() == 1);
-                                       if (auth_token_accessor[token].begin()->valid) {
-                                         // Double check, if the provided `uid` is correct as well.
-                                         const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
-                                         token_is_valid = auth_uid_accessor.Has(
-                                             auth_token_accessor[token].begin().key(), uid);
-                                       }
-                                     }
-                                     return token_is_valid;
-                                   }).Go();
-          if (!token_is_valid) {
-            DebugPrint(Printf("[/ctfo/feed] Invalid token. Requested URL = '%s'", r.url.ComposeURL().c_str()));
-            r("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
-          } else {
-            DebugPrint(
-                Printf("[/ctfo/feed] Token validated. Requested URL = '%s'", r.url.ComposeURL().c_str()));
-            const auto user = storage_.Get(uid).Go();
-            ResponseUserEntry user_entry;
-            CopyUserInfoToResponseEntry(user, user_entry);
-            user_entry.token = token;
-            RespondWithFeed(user_entry, FromString<size_t>(r.url.query.get("feed_count", "20")), std::move(r));
-          }
+          const size_t feed_count = FromString<size_t>(r.url.query.get("feed_count", "20"));
+          const std::string requested_url = r.url.ComposeURL();
+          storage_.Transaction(
+              [this, uid, token, requested_url, feed_count](StorageAPI::T_DATA data) {
+                bool token_is_valid = false;
+                const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
+                if (auth_token_accessor.Cols().Has(token)) {
+                  // Something went terribly wrong
+                  // if we have more than one authentication key for token.
+                  assert(auth_token_accessor[token].size() == 1);
+                  if (auth_token_accessor[token].begin()->valid) {
+                    // Double check, if the provided `uid` is correct as well.
+                    const auto auth_uid_accessor = Matrix<AuthKeyUIDPair>::Accessor(data);
+                    token_is_valid = auth_uid_accessor.Has(auth_token_accessor[token].begin().key(), uid);
+                  }
+                }
+                if (!token_is_valid) {
+                  DebugPrint(Printf("[/ctfo/feed] Invalid token. Requested URL = '%s'", requested_url.c_str()));
+                  return Response("NEED VALID UID-TOKEN PAIR\n", HTTPResponseCode.Unauthorized);
+                } else {
+                  DebugPrint(
+                      Printf("[/ctfo/feed] Token validated. Requested URL = '%s'", requested_url.c_str()));
+                  const auto user = data.Get(uid);
+                  ResponseUserEntry user_entry;
+                  CopyUserInfoToResponseEntry(user, user_entry);
+                  user_entry.token = token;
+                  ResponseFeed rfeed;
+                  GenerateResponseFeed(data, user_entry, feed_count, rfeed);
+                  return Response(rfeed);
+                }
+              },
+              std::move(r));
         }
       }
     });
-  }
-
-  void RespondWithFeed(ResponseUserEntry user_entry, size_t max_count, Request r) {
-    storage_.Transaction(
-        [this, user_entry, max_count](StorageAPI::T_DATA data) {
-          ResponseFeed response;
-          response.user = user_entry;
-
-          std::vector<CID> candidates;
-          const UID uid = StringToUID(response.user.uid);
-          const auto answers = Matrix<Answer>::Accessor(data);
-          const auto cards = Dictionary<Card>::Accessor(data);
-          for (const auto& card : cards) {
-            if (!answers.Has(uid, card.cid)) {
-              candidates.push_back(card.cid);
-            }
-          }
-          std::shuffle(candidates.begin(), candidates.end(), mt19937_64_tls());
-
-          auto GenerateCardForFeed = [this](const Card& card) {
-            ResponseCardEntry card_entry;
-            card_entry.cid = CIDToString(card.cid);
-            card_entry.text = card.text;
-            card_entry.relevance = RandomDouble(0, 1);
-            card_entry.ctfo_score = 50u;
-            card_entry.tfu_score = 50u;
-            const uint64_t total_answers = card.ctfo_count + card.tfu_count;
-            if (total_answers > 0) {
-              card_entry.ctfo_percentage = static_cast<double>(card.ctfo_count) / total_answers;
-            } else {
-              card_entry.ctfo_percentage = 0.5;
-            }
-            return card_entry;
-          };
-
-          std::vector<std::reference_wrapper<std::vector<ResponseCardEntry>>> feeds;
-          feeds.push_back(response.feed_hot);
-          feeds.push_back(response.feed_recent);
-          for (size_t i = 0; i < candidates.size() && (max_count ? (i < max_count * 2) : true); ++i) {
-            auto& feed = feeds[i % 2].get();
-            const CID cid = candidates[i];
-            feed.push_back(GenerateCardForFeed(data.Get(cid)));
-          }
-
-          response.ms = static_cast<uint64_t>(bricks::time::Now());
-          DebugPrint(
-              Printf("[RespondWithFeed] Generated response for UID '%s' with %u 'hot' and %u 'recent' cards",
-                     response.user.uid.c_str(),
-                     response.feed_hot.size(),
-                     response.feed_recent.size()));
-          return response;
-        },
-        std::move(r));
   }
 
   void Join() { HTTP(port_).Join(); }
@@ -290,6 +235,57 @@ class CTFOServer {
     }
   }
 
+  void GenerateResponseFeed(StorageAPI::T_DATA& data,
+                            ResponseUserEntry user_entry,
+                            size_t feed_size,
+                            ResponseFeed& response) {
+    constexpr size_t FEED_SIZE_LIMIT = 300ul;
+    const size_t max_count = std::min(feed_size, FEED_SIZE_LIMIT);
+    response.user = user_entry;
+
+    std::vector<CID> candidates;
+    const UID uid = StringToUID(response.user.uid);
+    const auto answers = Matrix<Answer>::Accessor(data);
+    const auto cards = Dictionary<Card>::Accessor(data);
+    for (const auto& card : cards) {
+      if (!answers.Has(uid, card.cid)) {
+        candidates.push_back(card.cid);
+      }
+    }
+    std::shuffle(candidates.begin(), candidates.end(), mt19937_64_tls());
+
+    auto GenerateCardForFeed = [this](const Card& card) {
+      ResponseCardEntry card_entry;
+      card_entry.cid = CIDToString(card.cid);
+      card_entry.text = card.text;
+      card_entry.relevance = RandomDouble(0, 1);
+      card_entry.ctfo_score = 50u;
+      card_entry.tfu_score = 50u;
+      const uint64_t total_answers = card.ctfo_count + card.tfu_count;
+      if (total_answers > 0) {
+        card_entry.ctfo_percentage = static_cast<double>(card.ctfo_count) / total_answers;
+      } else {
+        card_entry.ctfo_percentage = 0.5;
+      }
+      return card_entry;
+    };
+
+    std::vector<std::reference_wrapper<std::vector<ResponseCardEntry>>> feeds;
+    feeds.push_back(response.feed_hot);
+    feeds.push_back(response.feed_recent);
+    for (size_t i = 0; i < candidates.size() && (max_count ? (i < max_count * 2) : true); ++i) {
+      auto& feed = feeds[i % 2].get();
+      const CID cid = candidates[i];
+      feed.push_back(GenerateCardForFeed(data.Get(cid)));
+    }
+
+    response.ms = static_cast<uint64_t>(bricks::time::Now());
+    DebugPrint(Printf("[RespondWithFeed] Generated response for UID '%s' with %u 'hot' and %u 'recent' cards",
+                      response.user.uid.c_str(),
+                      response.feed_hot.size(),
+                      response.feed_recent.size()));
+  }
+
   void OnMidichloriansEvent(const LogEntry& entry) {
     std::unique_ptr<MidichloriansEvent> event;
     if (entry.m == "POST") {
@@ -318,78 +314,79 @@ class CTFOServer {
         const std::string& cid_str = ge.fields.at("cid");
         const std::string token = ge.fields.at("token");
         if (uid != UID::INVALID && cid != CID::INVALID) {
-          storage_
-              .Transaction([this, &uid, &cid, &uid_str, &cid_str, &token, &answer](StorageAPI::T_DATA data) {
-                const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
-                bool token_is_valid = false;
-                if (auth_token_accessor.Cols().Has(token)) {
-                  // Something went terribly wrong
-                  // if we have more than one authentication key for token.
-                  assert(auth_token_accessor[token].size() == 1);
-                  if (auth_token_accessor[token].begin()->valid) {
-                    token_is_valid = true;
-                  }
-                }
-                if (token_is_valid) {
-                  if (!data.Has(uid)) {
-                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent UID '%s' in answer.", uid_str.c_str()));
-                    return;
-                  }
-                  if (!data.Has(cid)) {
-                    DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent CID '%s' in answer.", cid_str.c_str()));
-                    return;
-                  }
-                  auto answers_mutator = Matrix<Answer>::Mutator(data);
-                  if (!answers_mutator.Has(uid, cid)) {  // Do not overwrite existing answers.
-                    data.Add(Answer(uid, cid, answer));
-                    DebugPrint(Printf("[UpdateStateOnEvent] Added new answer: [%s, %s, %d]",
-                                      UIDToString(uid).c_str(),
+          storage_.Transaction([this, uid, cid, uid_str, cid_str, token, answer](
+              StorageAPI::T_DATA data) {
+            const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
+            bool token_is_valid = false;
+            if (auth_token_accessor.Cols().Has(token)) {
+              // Something went terribly wrong
+              // if we have more than one authentication key for token.
+              assert(auth_token_accessor[token].size() == 1);
+              if (auth_token_accessor[token].begin()->valid) {
+                token_is_valid = true;
+              }
+            }
+            if (token_is_valid) {
+              if (!data.Has(uid)) {
+                DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent UID '%s' in answer.", uid_str.c_str()));
+                return;
+              }
+              if (!data.Has(cid)) {
+                DebugPrint(Printf("[UpdateStateOnEvent] Nonexistent CID '%s' in answer.", cid_str.c_str()));
+                return;
+              }
+              auto answers_mutator = Matrix<Answer>::Mutator(data);
+              if (!answers_mutator.Has(uid, cid)) {  // Do not overwrite existing answers.
+                data.Add(Answer(uid, cid, answer));
+                DebugPrint(Printf("[UpdateStateOnEvent] Added new answer: [%s, %s, %d]",
+                                  UIDToString(uid).c_str(),
+                                  CIDToString(cid).c_str(),
+                                  static_cast<int>(answer)));
+                Card card = data.Get(cid);
+                auto user_mutator = Dictionary<User>::Mutator(data);
+                User user = user_mutator.Get(uid);
+                if (answer != ANSWER::SKIP) {
+                  if (answer == ANSWER::CTFO) {
+                    ++card.ctfo_count;
+                    DebugPrint(Printf("[UpdateStateOnEvent] Card '%s' new ctfo_count = %u",
                                       CIDToString(cid).c_str(),
-                                      static_cast<int>(answer)));
-                    Card card = data.Get(cid);
-                    auto user_mutator = Dictionary<User>::Mutator(data);
-                    User user = user_mutator.Get(uid);
-                    if (answer != ANSWER::SKIP) {
-                      if (answer == ANSWER::CTFO) {
-                        ++card.ctfo_count;
-                        DebugPrint(Printf("[UpdateStateOnEvent] Card '%s' new ctfo_count = %u",
-                                          CIDToString(cid).c_str(),
-                                          card.ctfo_count));
-                        user.score += 50u;
-                        DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got %u points for 'CTFO' answer",
-                                          UIDToString(uid).c_str(),
-                                          50u));
-                      }
-                      if (answer == ANSWER::TFU) {
-                        ++card.tfu_count;
-                        DebugPrint(Printf("[UpdateStateOnEvent] Card '%s' new tfu_count = %u",
-                                          CIDToString(cid).c_str(),
-                                          card.tfu_count));
-                        user.score += 50u;
-                        DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got %u points for 'TFU' answer",
-                                          UIDToString(uid).c_str(),
-                                          50u));
-                      }
-                      if (user.level < LEVEL_SCORES.size() - 1 && user.score > LEVEL_SCORES[user.level + 1]) {
-                        user.score -= LEVEL_SCORES[user.level + 1];
-                        ++user.level;
-                        DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got promoted to a new level = %u",
-                                          UIDToString(uid).c_str(),
-                                          user.level));
-                      }
-                      data.Add(card);
-                      data.Add(user);
-                    }
-                  } else {
-                    DebugPrint(
-                        Printf("[UpdateStateOnEvent] Answer already exists: [%s, %s, %d]",
-                               UIDToString(uid).c_str(),
-                               CIDToString(cid).c_str(),
-                               static_cast<int>(static_cast<Answer>(answers_mutator.Get(uid, cid)).answer)));
+                                      card.ctfo_count));
+                    user.score += 50u;
+                    DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got %u points for 'CTFO' answer",
+                                      UIDToString(uid).c_str(),
+                                      50u));
                   }
+                  if (answer == ANSWER::TFU) {
+                    ++card.tfu_count;
+                    DebugPrint(Printf("[UpdateStateOnEvent] Card '%s' new tfu_count = %u",
+                                      CIDToString(cid).c_str(),
+                                      card.tfu_count));
+                    user.score += 50u;
+                    DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got %u points for 'TFU' answer",
+                                      UIDToString(uid).c_str(),
+                                      50u));
+                  }
+                  if (user.level < LEVEL_SCORES.size() - 1 && user.score > LEVEL_SCORES[user.level + 1]) {
+                    user.score -= LEVEL_SCORES[user.level + 1];
+                    ++user.level;
+                    DebugPrint(Printf("[UpdateStateOnEvent] User '%s' got promoted to a new level = %u",
+                                      UIDToString(uid).c_str(),
+                                      user.level));
+                  }
+                  data.Add(card);
+                  data.Add(user);
                 }
-              })
-              .Go();
+              } else {
+                DebugPrint(Printf("[UpdateStateOnEvent] Answer already exists: [%s, %s, %d]",
+                                  UIDToString(uid).c_str(),
+                                  CIDToString(cid).c_str(),
+                                  static_cast<int>(static_cast<Answer>(answers_mutator.Get(uid, cid)).answer)));
+              }
+            }
+            if (!token_is_valid) {
+              DebugPrint(Printf("[UpdateStateOnEvent] Not valid token '%s' found in event.", token.c_str()));
+            }
+          });
         }
       } catch (const std::out_of_range& e) {
         DebugPrint(Printf("[UpdateStateOnEvent] std::out_of_range: '%s'", e.what()));
