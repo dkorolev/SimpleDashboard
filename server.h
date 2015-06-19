@@ -33,8 +33,9 @@ SOFTWARE.
 #include <string>
 #include <vector>
 
+#include "../Current/Blocks/HTTP/api.h"
+
 #include "../Current/Bricks/file/file.h"
-#include "../Current/Bricks/net/api/api.h"
 #include "../Current/Bricks/strings/strings.h"
 #include "../Current/Bricks/util/random.h"
 
