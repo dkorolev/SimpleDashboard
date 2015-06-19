@@ -140,9 +140,8 @@ class CTFOServer {
                 CopyUserInfoToResponseEntry(user, user_entry);
                 user_entry.token = token;
 
-                ResponseFeed rfeed;
-                GenerateResponseFeed(data, user_entry, feed_count, rfeed);
-                return Response(rfeed);
+                ResponseFeed rfeed = GenerateResponseFeed(data, user_entry, feed_count);
+                return Response(rfeed, "feed");
               },
               std::move(r));
         }
@@ -188,9 +187,8 @@ class CTFOServer {
                   ResponseUserEntry user_entry;
                   CopyUserInfoToResponseEntry(user, user_entry);
                   user_entry.token = token;
-                  ResponseFeed rfeed;
-                  GenerateResponseFeed(data, user_entry, feed_count, rfeed);
-                  return Response(rfeed);
+                  ResponseFeed rfeed = GenerateResponseFeed(data, user_entry, feed_count);
+                  return Response(rfeed, "feed");
                 }
               },
               std::move(r));
@@ -235,10 +233,8 @@ class CTFOServer {
     }
   }
 
-  void GenerateResponseFeed(StorageAPI::T_DATA& data,
-                            ResponseUserEntry user_entry,
-                            size_t feed_size,
-                            ResponseFeed& response) {
+  ResponseFeed GenerateResponseFeed(StorageAPI::T_DATA& data, ResponseUserEntry user_entry, size_t feed_size) {
+    ResponseFeed response;
     constexpr size_t FEED_SIZE_LIMIT = 300ul;
     const size_t max_count = std::min(feed_size, FEED_SIZE_LIMIT);
     response.user = user_entry;
@@ -284,6 +280,7 @@ class CTFOServer {
                       response.user.uid.c_str(),
                       response.feed_hot.size(),
                       response.feed_recent.size()));
+    return response;
   }
 
   void OnMidichloriansEvent(const LogEntry& entry) {
@@ -314,8 +311,7 @@ class CTFOServer {
         const std::string& cid_str = ge.fields.at("cid");
         const std::string token = ge.fields.at("token");
         if (uid != UID::INVALID && cid != CID::INVALID) {
-          storage_.Transaction([this, uid, cid, uid_str, cid_str, token, answer](
-              StorageAPI::T_DATA data) {
+          storage_.Transaction([this, uid, cid, uid_str, cid_str, token, answer](StorageAPI::T_DATA data) {
             const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
             bool token_is_valid = false;
             if (auth_token_accessor.Cols().Has(token)) {
