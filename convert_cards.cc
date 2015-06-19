@@ -35,6 +35,7 @@ using namespace bricks::strings;
 
 DEFINE_string(in, "cards.txt", "Default input file in raw text format.");
 DEFINE_string(out, "cards.json", "Default output file in JSON format.");
+DEFINE_bool(append, false, "Append to existing output file if `true`, delete file otherwise.");
 
 CID CIDByHash(const std::string& text) {
   CID cid = static_cast<CID>(std::hash<std::string>()(text) % ID_RANGE + 2 * ID_RANGE);
@@ -44,6 +45,11 @@ CID CIDByHash(const std::string& text) {
 int main(int argc, char** argv) {
   ParseDFlags(&argc, &argv);
   std::vector<std::string> raw_cards;
+
+  if (!FLAGS_append) {
+    bricks::FileSystem::RmFile(FLAGS_out, bricks::FileSystem::RmFileParameters::Silent);
+  }
+
   try {
     raw_cards = Split<ByLines>(bricks::FileSystem::ReadFileAsString(FLAGS_in));
   } catch (const bricks::CannotReadFileException& e) {
