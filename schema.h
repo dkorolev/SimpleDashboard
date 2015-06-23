@@ -30,7 +30,7 @@ SOFTWARE.
 #include <string>
 
 #include "../Current/Bricks/cerealize/cerealize.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 // Data structures for internal storage.
 enum class UID : uint64_t { INVALID = 0u };
