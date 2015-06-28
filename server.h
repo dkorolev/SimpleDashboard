@@ -309,6 +309,7 @@ class CTFOServer {
   }
 
   void UpdateStateOnEvent(const std::unique_ptr<MidichloriansEvent>& event) {
+    DebugPrint("[UpdateStateOnEvent] Parsing event.");
     try {
       const iOSGenericEvent& ge = dynamic_cast<const iOSGenericEvent&>(*event.get());
       try {
@@ -318,6 +319,11 @@ class CTFOServer {
         const std::string& uid_str = ge.fields.at("uid");
         const std::string& cid_str = ge.fields.at("cid");
         const std::string token = ge.fields.at("token");
+        DebugPrint(Printf("[UpdateStateOnEvent] Event='%s', uid='%s', cid='%s',token='%s'",
+                          ge.event.c_str(),
+                          uid_str.c_str(),
+                          cid_str.c_str(),
+                          token.c_str()));
         if (uid != UID::INVALID && cid != CID::INVALID) {
           storage_.Transaction([this, uid, cid, uid_str, cid_str, token, answer](StorageAPI::T_DATA data) {
             const auto auth_token_accessor = Matrix<AuthKeyTokenPair>::Accessor(data);
@@ -391,12 +397,15 @@ class CTFOServer {
               DebugPrint(Printf("[UpdateStateOnEvent] Not valid token '%s' found in event.", token.c_str()));
             }
           });
+        } else {
+          DebugPrint("[UpdateStateOnEvent] Invalid UID or CID.");
         }
       } catch (const std::out_of_range& e) {
         DebugPrint(Printf("[UpdateStateOnEvent] std::out_of_range: '%s'", e.what()));
       }
     } catch (const std::bad_cast&) {
       // `event` is not an `iOSGenericEvent`.
+      DebugPrint("[UpdateStateOnEvent] Not an `iOSGenericEvent`.");
     }
   }
 };
