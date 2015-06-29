@@ -57,7 +57,8 @@ int main(int argc, char** argv) {
     return -1;
   }
 
-  bricks::cerealize::CerealFileAppender<Card, bricks::cerealize::CerealFormat::JSON> out_json(FLAGS_out);
+  bricks::cerealize::CerealFileAppender<Card, bricks::DefaultCloner, bricks::cerealize::CerealFormat::JSON>
+      out_json(FLAGS_out);
 
   std::set<CID> cids;
   for (const auto& text : raw_cards) {

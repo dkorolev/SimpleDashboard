@@ -39,6 +39,8 @@ SOFTWARE.
 #include "../Current/Bricks/strings/strings.h"
 #include "../Current/Bricks/util/random.h"
 
+#include "../Current/Blocks/HTTP/api.h"
+
 #include "../Current/EventCollector/event_collector.h"
 
 #include "schema.h"
@@ -214,11 +216,11 @@ class CTFOServer {
   EventCollectorHTTPServer event_collector_;
   const bool debug_print_;
 
-  typedef API<Dictionary<User>,
-              Matrix<AuthKeyTokenPair>,
-              Matrix<AuthKeyUIDPair>,
-              Dictionary<Card>,
-              Matrix<Answer>> StorageAPI;
+  typedef MemoryOnlyAPI<Dictionary<User>,
+                        Matrix<AuthKeyTokenPair>,
+                        Matrix<AuthKeyUIDPair>,
+                        Dictionary<Card>,
+                        Matrix<Answer>> StorageAPI;
   StorageAPI storage_;
 
   const std::map<std::string, ANSWER> valid_answers_ = {
