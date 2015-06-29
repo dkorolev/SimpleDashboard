@@ -26,6 +26,15 @@ SOFTWARE.
 #ifndef CTFO_SERVER_H
 #define CTFO_SERVER_H
 
+#include <cassert>
+#include <cstdlib>
+#include <functional>
+#include <random>
+#include <string>
+#include <vector>
+
+#include "../Current/Blocks/HTTP/api.h"
+
 #include "../Current/Bricks/file/file.h"
 #include "../Current/Bricks/strings/strings.h"
 #include "../Current/Bricks/util/random.h"

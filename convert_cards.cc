@@ -56,10 +56,11 @@ int main(int argc, char** argv) {
     std::cerr << "Unable to read file '" << FLAGS_in << "': " << e.what() << std::endl;
     return -1;
   }
+
   bricks::cerealize::CerealFileAppender<Card, bricks::DefaultCloner, bricks::cerealize::CerealFormat::JSON>
       out_json(FLAGS_out);
-  std::set<CID> cids;
 
+  std::set<CID> cids;
   for (const auto& text : raw_cards) {
     // Generate unique CID.
     CID cid;
