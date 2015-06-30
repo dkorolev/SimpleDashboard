@@ -264,6 +264,7 @@ class CTFOServer {
       ResponseCardEntry card_entry;
       card_entry.cid = CIDToString(card.cid);
       card_entry.text = card.text;
+      card_entry.color = card.color;
       card_entry.relevance = RandomDouble(0, 1);
       card_entry.ctfo_score = 50u;
       card_entry.tfu_score = 50u;
