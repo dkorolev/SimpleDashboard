@@ -267,12 +267,9 @@ class CTFOServer {
       card_entry.relevance = RandomDouble(0, 1);
       card_entry.ctfo_score = 50u;
       card_entry.tfu_score = 50u;
-      const uint64_t total_answers = card.ctfo_count + card.tfu_count;
-      if (total_answers > 0) {
-        card_entry.ctfo_percentage = static_cast<double>(card.ctfo_count) / total_answers;
-      } else {
-        card_entry.ctfo_percentage = 0.5;
-      }
+      card_entry.ctfo_count = card.ctfo_count;
+      card_entry.tfu_count = card.tfu_count;
+      card_entry.skip_count = card.skip_count;
       return card_entry;
     };
 

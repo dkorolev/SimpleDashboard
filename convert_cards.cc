@@ -71,6 +71,6 @@ int main(int argc, char** argv) {
     } while (cids.find(cid) != cids.end());
     cids.insert(cid);
 
-    out_json << Card(cid, text);
+    out_json << Card(cid, text, CARD_COLORS[static_cast<uint64_t>(cid) % CARD_COLORS.size()]);
   }
 }
