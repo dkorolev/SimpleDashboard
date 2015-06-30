@@ -32,12 +32,23 @@ SOFTWARE.
 #include "../Current/Bricks/cerealize/cerealize.h"
 #include "../Current/Yoda/yoda.h"
 
-// Data structures for internal storage.
-enum class UID : uint64_t { INVALID = 0u };
-enum class CID : uint64_t { INVALID = 0u };
-enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
-enum class AUTH_TYPE : int { UNDEFINED = 0, IOS };
+// Common data structures.
+struct Color {
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
 
+  Color() : red(0u), green(0u), blue(0u) {}
+  Color(uint8_t red, uint8_t green, uint8_t blue) : red(red), green(green), blue(blue) {}
+  Color(const Color&) = default;
+
+  template <typename A>
+  void serialize(A& ar) {
+    ar(CEREAL_NVP(red), CEREAL_NVP(green), CEREAL_NVP(blue));
+  }
+};
+
+// Constants.
 const std::vector<unsigned int> LEVEL_SCORES{
     0,        // "Fish"
     15000,    // "Turkey"
@@ -50,6 +61,22 @@ const std::vector<unsigned int> LEVEL_SCORES{
     1920000,  // "Chimp"
     3840000   // "Skrik"
 };
+
+const std::vector<Color> CARD_COLORS{
+    {2u, 152u, 228u},    // Light blue.
+    {255u, 94u, 154u},   // Pink.
+    {194u, 236u, 0u},    // Yellow.
+    {242u, 129u, 1u},    // Orange.
+    {201u, 173u, 199u},  // Purple.
+    {62u, 238u, 62u},    // Green.
+    {236u, 63u, 63u}     // Red.
+};
+
+// Data structures for internal storage.
+enum class UID : uint64_t { INVALID = 0u };
+enum class CID : uint64_t { INVALID = 0u };
+enum class ANSWER : int { UNSEEN = 0, CTFO = 1, TFU = 2, SKIP = -1 };
+enum class AUTH_TYPE : int { UNDEFINED = 0, IOS };
 
 struct User : yoda::Padawan {
   UID uid = UID::INVALID;
@@ -130,14 +157,15 @@ struct AuthKeyUIDPair : yoda::Padawan {
 
 struct Card : yoda::Padawan {
   CID cid = CID::INVALID;
-  std::string text = "";     // Card text.
+  std::string text = "";     // Plain text.
+  Color color;               // Color.
   uint64_t ctfo_count = 0u;  // Number of users, who said "CTFO" on this card.
   uint64_t tfu_count = 0u;   // Number of users, who said "TFU" on this card.
   uint64_t skip_count = 0u;  // Number of users, who said "SKIP" on this card.
 
   Card() = default;
   Card(const Card&) = default;
-  Card(CID cid, const std::string& text) : cid(cid), text(text) {}
+  Card(CID cid, const std::string& text, const Color& color) : cid(cid), text(text), color(color) {}
 
   CID key() const { return cid; }
   void set_key(CID value) { cid = value; }
@@ -147,6 +175,7 @@ struct Card : yoda::Padawan {
     Padawan::serialize(ar);
     ar(CEREAL_NVP(cid),
        CEREAL_NVP(text),
+       CEREAL_NVP(color),
        CEREAL_NVP(ctfo_count),
        CEREAL_NVP(tfu_count),
        CEREAL_NVP(skip_count));
@@ -191,19 +220,25 @@ struct ResponseUserEntry {
 struct ResponseCardEntry {
   std::string cid = "cINVALID";  // Card id, format 'c02XXX...'.
   std::string text = "";         // Card text.
+  Color color;                   // Card color.
   double relevance = 0.0;        // Card relevance for particular user, [0.0, 1.0].
   uint64_t ctfo_score = 0u;      // Number of points, which user gets for "CTFO" answer.
   uint64_t tfu_score = 0u;       // Number of points, which user gets for "TFU" answer.
-  double ctfo_percentage = 0.5;  // Proportion of users, who answered "CTFO" for this card, [0.0, 1.0].
+  uint64_t ctfo_count = 0u;      // Number of users, who said "CTFO" on this card.
+  uint64_t tfu_count = 0u;       // Number of users, who said "TFU" on this card.
+  uint64_t skip_count = 0u;      // Number of users, who said "SKIP" on this card.
 
   template <typename A>
   void serialize(A& ar) {
     ar(CEREAL_NVP(cid),
        CEREAL_NVP(text),
+       CEREAL_NVP(color),
        CEREAL_NVP(relevance),
        CEREAL_NVP(ctfo_score),
        CEREAL_NVP(tfu_score),
-       CEREAL_NVP(ctfo_percentage));
+       CEREAL_NVP(ctfo_count),
+       CEREAL_NVP(tfu_count),
+       CEREAL_NVP(skip_count));
   }
 };
 
