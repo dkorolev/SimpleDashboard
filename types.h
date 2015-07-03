@@ -28,7 +28,7 @@ SOFTWARE.
 #include "helpers.h"
 
 #include "../Current/Bricks/template/metaprogramming.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 #include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
 

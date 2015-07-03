@@ -32,8 +32,9 @@ SOFTWARE.
 #include "../Current/Bricks/strings/util.h"
 #include "../Current/Bricks/template/metaprogramming.h"
 #include "../Current/Bricks/waitable_atomic/waitable_atomic.h"
+
 #include "../Current/Sherlock/sherlock.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 // Structured iOS events structure to follow.
 #include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
@@ -173,12 +174,12 @@ CEREAL_REGISTER_TYPE(AggregatedSessionInfo);
 
 namespace DashboardAPIType {
 
-using yoda::API;
+using yoda::MemoryOnlyAPI;
 using yoda::Dictionary;
-using yoda::MatrixEntry;
-typedef API<Dictionary<MidichloriansEventWithTimestamp>,
-            MatrixEntry<EventsByGID>,
-            MatrixEntry<AggregatedSessionInfo>> DB;
+using yoda::Matrix;
+typedef MemoryOnlyAPI<Dictionary<MidichloriansEventWithTimestamp>,
+                      Matrix<EventsByGID>,
+                      Matrix<AggregatedSessionInfo>> DB;
 
 }  // namespace DashboardAPIType
 
@@ -260,7 +261,7 @@ struct Splitter {
       if (key.empty()) {
         db.Transaction([](typename DB::T_DATA data) {
                          SessionsListPayload payload;
-                         for (const auto cit : yoda::MatrixEntry<EventsByGID>::Accessor(data).Rows()) {
+                         for (const auto cit : yoda::Matrix<EventsByGID>::Accessor(data).Rows()) {
                            payload.sessions.push_back(FLAGS_output_uri_prefix + "/g?gid=" + cit.key());
                          }
                          std::sort(std::begin(payload.sessions), std::end(payload.sessions));
@@ -274,7 +275,7 @@ struct Splitter {
               SessionDetailsPayload payload;
               try {
                 payload.up = FLAGS_output_uri_prefix + "/g";
-                for (const auto cit : yoda::MatrixEntry<EventsByGID>::Accessor(data)[key]) {
+                for (const auto cit : yoda::Matrix<EventsByGID>::Accessor(data)[key]) {
                   const auto eid_as_uint64 = static_cast<uint64_t>(cit.col);
                   payload.event.push_back(SessionDetailsPayload::Event(
                       eid_as_uint64, Printf("%s/e?eid=%llu", FLAGS_output_uri_prefix.c_str(), eid_as_uint64)));
@@ -312,7 +313,7 @@ struct Splitter {
                        current_sessions.ImmutableUse(
                            [this, &payload](const CurrentSessions& current) { payload.current = current; });
                        // Finalized sessions.
-                       const auto& accessor = yoda::MatrixEntry<AggregatedSessionInfo>::Accessor(data);
+                       const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
                        for (const auto& sessions_per_group : accessor.Cols()) {
                          auto& results_per_group = payload.finalized[sessions_per_group.key().gid];
                          for (const auto& individual_session : sessions_per_group) {
@@ -337,7 +338,7 @@ struct Splitter {
                        realm.description = "One and only realm.";
                        // Explain time features.
                        realm.tag["T"].name = "Session length";
-                       const auto& accessor = yoda::MatrixEntry<AggregatedSessionInfo>::Accessor(data);
+                       const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
                        for (const auto seconds : second_marks) {
                          auto& feature = realm.feature[Printf(">=%ds", seconds)];
                          feature.tag = "T";
@@ -449,9 +450,7 @@ struct Listener {
 
   explicit Listener(DB& db) : db(db), splitter(db) {}
 
-  // TODO(dkorolev): The last two parameters should be made optional.
-  // TODO(dkorolev): The return value should be made optional.
-  bool Entry(const EID eid, size_t, size_t) {
+  inline bool operator()(const EID eid) {
     db.Transaction(
            [this, eid](typename DB::T_DATA data) {
              // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.
