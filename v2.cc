@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include "stdin_parse.h"
 #include "insights.h"
+#include "cubes.h"
 
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/strings/util.h"
@@ -382,6 +383,89 @@ struct Splitter {
                      },
                      std::move(r));
     });
+
+    // Export data for cubes generation.
+    HTTP(FLAGS_port).Register(FLAGS_route + "c", [this, &db](Request r) {
+      db.Transaction(
+          [this](typename DB::T_DATA data) {
+            CubeGeneratorInput payload;
+            auto& dimensions = payload.space.dimensions;
+            auto& sessions = payload.sessions;
+
+            // map<FEATURE, map<FEATURE_COUNT_IN_SESSION, NUMBER_OF_SESSION_CONTAINING_THIS_COUNT>>
+            std::map<std::string, std::map<size_t, size_t>> feature_stats;
+
+            const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
+            for (const auto& sessions_per_group : accessor.Cols()) {
+              for (const auto& individual_session : sessions_per_group) {
+                sessions.resize(sessions.size() + 1);
+                CubeGeneratorInput::Session& output_session = sessions.back();
+                output_session.id = individual_session.sid;
+                output_session.feature_count[TIME_DIMENSION_NAME] = individual_session.number_of_seconds;
+                ++feature_stats[TIME_DIMENSION_NAME][individual_session.number_of_seconds];
+                for (const auto& feature_counter : individual_session.counters) {
+                  const std::string& feature = feature_counter.first;
+                  output_session.feature_count[feature] = feature_counter.second;
+                  ++feature_stats[feature][feature_counter.second];
+                }
+              }
+            }
+
+            // Put `Session Length` and `Device` dimensions first.
+            const std::vector<size_t> second_marks({5, 10, 15, 30, 60, 120, 300});
+            dimensions.emplace_back(TIME_DIMENSION_NAME);
+            Dimension& time_dimension = dimensions.back();
+            assert(second_marks.size() > 1u);
+            for (size_t i = 0; i < second_marks.size() - 1u; ++i) {
+              const size_t a = second_marks[i];
+              const size_t b = (i != second_marks.size() - 2u) ? second_marks[i + 1] - 1u : second_marks[i + 1];
+              if (i == 0) {
+                Bin first_bin("< " + std::to_string(a), a, Bin::RangeType::LESS);
+                time_dimension.bins.push_back(first_bin);
+              }
+              Bin bin_range(
+                  std::to_string(a) + " - " + std::to_string(b), a, b, Bin::RangeType::INTERVAL);
+              time_dimension.bins.push_back(bin_range);
+              if (i == second_marks.size() - 2u) {
+                Bin last_bin("> " + std::to_string(b), b, Bin::RangeType::GREATER);
+                time_dimension.bins.push_back(last_bin);
+              }
+            }
+            dimensions.emplace_back(DEVICE_DIMENSION_NAME);
+            dimensions.back().bins.emplace_back(NOT_SET_BIN_NAME);
+
+            // Fill dimensions info in the response.
+            for (const auto& cit : feature_stats) {
+              const std::string feature = cit.first;
+
+              const auto dim_bin = payload.space.SplitFeatureIntoDimensionAndBinNames(feature);
+              if (dim_bin.first.empty()) {
+                // Skip filtered out features.
+                continue;
+              }
+
+              Dimension* dim_in_space = payload.space.DimensionByName(dim_bin.first);
+              if (dim_bin.second.empty()) {
+                assert(!dim_in_space);
+                Dimension dim(dim_bin.first);
+                dim.bins.emplace_back(NOT_SET_BIN_NAME);
+                dim.SmartCreateBins(cit.second);
+                dimensions.push_back(dim);
+              } else {
+                if (!dim_in_space) {
+                  Dimension dim(dim_bin.first);
+                  dimensions.push_back(dim);
+                  dim_in_space = &dimensions.back();
+                }
+                Bin bin(dim_bin.second, feature);
+                dim_in_space->AddBinIfNotExists(bin);
+              }
+            }
+
+            return payload;
+          },
+          std::move(r));
+    });
   }
 
   void RealEvent(EID eid, const MidichloriansEventWithTimestamp& event, typename DB::T_DATA& data) {
@@ -390,7 +474,7 @@ struct Splitter {
     assert(e);
 
     // Start / update / end active sessions.
-    const std::string& cid = e->client_id;
+    const std::string& cid = e->device_id;
     if (!cid.empty()) {
       // Keep track of events per group.
       const std::string gid = "CID:" + cid;
