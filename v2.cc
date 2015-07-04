@@ -27,13 +27,15 @@ SOFTWARE.
 
 #include "stdin_parse.h"
 #include "insights.h"
+#include "cubes.h"
 
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/strings/util.h"
 #include "../Current/Bricks/template/metaprogramming.h"
 #include "../Current/Bricks/waitable_atomic/waitable_atomic.h"
+
 #include "../Current/Sherlock/sherlock.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 // Structured iOS events structure to follow.
 #include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
@@ -173,12 +175,12 @@ CEREAL_REGISTER_TYPE(AggregatedSessionInfo);
 
 namespace DashboardAPIType {
 
-using yoda::API;
+using yoda::MemoryOnlyAPI;
 using yoda::Dictionary;
-using yoda::MatrixEntry;
-typedef API<Dictionary<MidichloriansEventWithTimestamp>,
-            MatrixEntry<EventsByGID>,
-            MatrixEntry<AggregatedSessionInfo>> DB;
+using yoda::Matrix;
+typedef MemoryOnlyAPI<Dictionary<MidichloriansEventWithTimestamp>,
+                      Matrix<EventsByGID>,
+                      Matrix<AggregatedSessionInfo>> DB;
 
 }  // namespace DashboardAPIType
 
@@ -260,7 +262,7 @@ struct Splitter {
       if (key.empty()) {
         db.Transaction([](typename DB::T_DATA data) {
                          SessionsListPayload payload;
-                         for (const auto cit : yoda::MatrixEntry<EventsByGID>::Accessor(data).Rows()) {
+                         for (const auto cit : yoda::Matrix<EventsByGID>::Accessor(data).Rows()) {
                            payload.sessions.push_back(FLAGS_output_uri_prefix + "/g?gid=" + cit.key());
                          }
                          std::sort(std::begin(payload.sessions), std::end(payload.sessions));
@@ -274,7 +276,7 @@ struct Splitter {
               SessionDetailsPayload payload;
               try {
                 payload.up = FLAGS_output_uri_prefix + "/g";
-                for (const auto cit : yoda::MatrixEntry<EventsByGID>::Accessor(data)[key]) {
+                for (const auto cit : yoda::Matrix<EventsByGID>::Accessor(data)[key]) {
                   const auto eid_as_uint64 = static_cast<uint64_t>(cit.col);
                   payload.event.push_back(SessionDetailsPayload::Event(
                       eid_as_uint64, Printf("%s/e?eid=%llu", FLAGS_output_uri_prefix.c_str(), eid_as_uint64)));
@@ -312,7 +314,7 @@ struct Splitter {
                        current_sessions.ImmutableUse(
                            [this, &payload](const CurrentSessions& current) { payload.current = current; });
                        // Finalized sessions.
-                       const auto& accessor = yoda::MatrixEntry<AggregatedSessionInfo>::Accessor(data);
+                       const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
                        for (const auto& sessions_per_group : accessor.Cols()) {
                          auto& results_per_group = payload.finalized[sessions_per_group.key().gid];
                          for (const auto& individual_session : sessions_per_group) {
@@ -337,7 +339,7 @@ struct Splitter {
                        realm.description = "One and only realm.";
                        // Explain time features.
                        realm.tag["T"].name = "Session length";
-                       const auto& accessor = yoda::MatrixEntry<AggregatedSessionInfo>::Accessor(data);
+                       const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
                        for (const auto seconds : second_marks) {
                          auto& feature = realm.feature[Printf(">=%ds", seconds)];
                          feature.tag = "T";
@@ -381,6 +383,89 @@ struct Splitter {
                      },
                      std::move(r));
     });
+
+    // Export data for cubes generation.
+    HTTP(FLAGS_port).Register(FLAGS_route + "c", [this, &db](Request r) {
+      db.Transaction(
+          [this](typename DB::T_DATA data) {
+            CubeGeneratorInput payload;
+            auto& dimensions = payload.space.dimensions;
+            auto& sessions = payload.sessions;
+
+            // map<FEATURE, map<FEATURE_COUNT_IN_SESSION, NUMBER_OF_SESSION_CONTAINING_THIS_COUNT>>
+            std::map<std::string, std::map<size_t, size_t>> feature_stats;
+
+            const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
+            for (const auto& sessions_per_group : accessor.Cols()) {
+              for (const auto& individual_session : sessions_per_group) {
+                sessions.resize(sessions.size() + 1);
+                CubeGeneratorInput::Session& output_session = sessions.back();
+                output_session.id = individual_session.sid;
+                output_session.feature_count[TIME_DIMENSION_NAME] = individual_session.number_of_seconds;
+                ++feature_stats[TIME_DIMENSION_NAME][individual_session.number_of_seconds];
+                for (const auto& feature_counter : individual_session.counters) {
+                  const std::string& feature = feature_counter.first;
+                  output_session.feature_count[feature] = feature_counter.second;
+                  ++feature_stats[feature][feature_counter.second];
+                }
+              }
+            }
+
+            // Put `Session Length` and `Device` dimensions first.
+            const std::vector<size_t> second_marks({5, 10, 15, 30, 60, 120, 300});
+            dimensions.emplace_back(TIME_DIMENSION_NAME);
+            Dimension& time_dimension = dimensions.back();
+            assert(second_marks.size() > 1u);
+            for (size_t i = 0; i < second_marks.size() - 1u; ++i) {
+              const size_t a = second_marks[i];
+              const size_t b = (i != second_marks.size() - 2u) ? second_marks[i + 1] - 1u : second_marks[i + 1];
+              if (i == 0) {
+                Bin first_bin("< " + std::to_string(a), a, Bin::RangeType::LESS);
+                time_dimension.bins.push_back(first_bin);
+              }
+              Bin bin_range(
+                  std::to_string(a) + " - " + std::to_string(b), a, b, Bin::RangeType::INTERVAL);
+              time_dimension.bins.push_back(bin_range);
+              if (i == second_marks.size() - 2u) {
+                Bin last_bin("> " + std::to_string(b), b, Bin::RangeType::GREATER);
+                time_dimension.bins.push_back(last_bin);
+              }
+            }
+            dimensions.emplace_back(DEVICE_DIMENSION_NAME);
+            dimensions.back().bins.emplace_back(NOT_SET_BIN_NAME);
+
+            // Fill dimensions info in the response.
+            for (const auto& cit : feature_stats) {
+              const std::string feature = cit.first;
+
+              const auto dim_bin = payload.space.SplitFeatureIntoDimensionAndBinNames(feature);
+              if (dim_bin.first.empty()) {
+                // Skip filtered out features.
+                continue;
+              }
+
+              Dimension* dim_in_space = payload.space.DimensionByName(dim_bin.first);
+              if (dim_bin.second.empty()) {
+                assert(!dim_in_space);
+                Dimension dim(dim_bin.first);
+                dim.bins.emplace_back(NOT_SET_BIN_NAME);
+                dim.SmartCreateBins(cit.second);
+                dimensions.push_back(dim);
+              } else {
+                if (!dim_in_space) {
+                  Dimension dim(dim_bin.first);
+                  dimensions.push_back(dim);
+                  dim_in_space = &dimensions.back();
+                }
+                Bin bin(dim_bin.second, feature);
+                dim_in_space->AddBinIfNotExists(bin);
+              }
+            }
+
+            return payload;
+          },
+          std::move(r));
+    });
   }
 
   void RealEvent(EID eid, const MidichloriansEventWithTimestamp& event, typename DB::T_DATA& data) {
@@ -389,7 +474,7 @@ struct Splitter {
     assert(e);
 
     // Start / update / end active sessions.
-    const std::string& cid = e->client_id;
+    const std::string& cid = e->device_id;
     if (!cid.empty()) {
       // Keep track of events per group.
       const std::string gid = "CID:" + cid;
@@ -449,9 +534,7 @@ struct Listener {
 
   explicit Listener(DB& db) : db(db), splitter(db) {}
 
-  // TODO(dkorolev): The last two parameters should be made optional.
-  // TODO(dkorolev): The return value should be made optional.
-  bool Entry(const EID eid, size_t, size_t) {
+  inline bool operator()(const EID eid) {
     db.Transaction(
            [this, eid](typename DB::T_DATA data) {
              // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.

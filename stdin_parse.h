@@ -42,14 +42,15 @@ SOFTWARE.
 #include "../Current/Bricks/template/metaprogramming.h"
 #include "../Current/Bricks/time/chrono.h"
 #include "../Current/Bricks/waitable_atomic/waitable_atomic.h"
+
 #include "../Current/Sherlock/sherlock.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 // Stored log event structure, to parse the JSON-s.
-#include "../Current/SimpleServer/log_collector.h"
+#include "../Current/EventCollector/event_collector.h"
 
 // Parses events from standard input. Expects them to be of type `LogEntry`,
-// see `../Current/SimpleServer/log_collector.h`.
+// see `../Current/EventCollector/event__collector.h`.
 struct State {
   const uint64_t start_ms;
   uint64_t last_event_ms = 0;
@@ -71,9 +72,11 @@ struct State {
   }
 };
 
+typedef sherlock::StreamInstance<EID, sherlock::DEFAULT_PERSISTENCE_LAYER, bricks::DefaultCloner> STREAM_TYPE;
+
 // `ENTRY_TYPE` should have a two-parameter constructor, from { `timestamp`, `std::move(event)` }.
 template <typename HTTP_BODY_BASE_TYPE, typename ENTRY_TYPE, typename YODA>
-void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(sherlock::StreamInstance<EID>& raw,
+void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw,
                                                                 YODA& db,
                                                                 int port = 0,
                                                                 const std::string& route = "") {

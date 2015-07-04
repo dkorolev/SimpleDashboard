@@ -28,7 +28,7 @@ SOFTWARE.
 #include "helpers.h"
 
 #include "../Current/Bricks/template/metaprogramming.h"
-#include "../Current/Sherlock/yoda/yoda.h"
+#include "../Current/Yoda/yoda.h"
 
 #include "../Current/Midichlorians/Dev/Beta/MidichloriansDataDictionary.h"
 
@@ -128,14 +128,25 @@ struct EventWithTimestamp : yoda::Padawan {
           const auto cit_model = e.info.find("deviceModel");
           gist = "iOSDeviceInfo:" + (cit_model != e.info.end() ? cit_model->second : "UNKNOWN");
         }
-        void operator()(const iOSAppLaunchEvent& e) {
-          gist = "iOSAppLaunchEvent:binary_date=`" + e.binary_version + "`";
+        void operator()(const iOSAppLaunchEvent&) {
+          // gist = "iOSAppLaunchEvent:binary_date=`" + e.binary_version + "`";
+          gist = "iOSAppLaunchEvent";
         }
         void operator()(iOSFirstLaunchEvent) {}
         void operator()(iOSFocusEvent) {}
         void operator()(const iOSGenericEvent& e) {
           if (e.event != "AppOpen" && e.event != "Backgrounded" && e.event != "MemoryWarning") {
-            gist = "iOSGenericEvent:" + e.source + ":`" + e.event + "`";
+            gist = "iOSGenericEvent:" + e.source + ":" + e.event;
+            // Code below can be used to generated more detailed data.
+            // Hint: DO NOT USE `|` as a separator in the dimension name - it interferes with cube browser
+            // format.
+            /*
+            for (const auto cit : e.fields) {
+              if (!cit.second.empty()) {
+                gist += "#" + cit.second;
+              }
+            }
+            */
           }
         }
         void operator()(const iOSBaseEvent& e) { gist = "iOSBaseEvent:`" + e.description + "`"; }
