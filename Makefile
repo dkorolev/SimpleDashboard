@@ -21,7 +21,7 @@ endif
 
 LOGS_FILENAME="/var/log/current.jsonlines"
 
-all: build build/browser build/gen_insights build/v2
+all: build build/browser build/gen_insights build/v2 build/gen_cube
 
 serve: build build/v2
 	[ -f ${LOGS_FILENAME} ] && tail -n +1 -f ${LOGS_FILENAME} | ./build/v2 --output_uri_prefix=http://localhost:3000 || echo "Build successful."

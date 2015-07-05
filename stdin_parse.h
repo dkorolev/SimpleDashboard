@@ -56,6 +56,7 @@ struct State {
   uint64_t last_event_ms = 0;
   size_t total_events = 0;
   size_t total_ticks = 0;
+  size_t last_stream_entry_index = static_cast<size_t>(-1);
 
   State() : start_ms(static_cast<uint64_t>(bricks::time::Now())) {}
 
@@ -68,7 +69,8 @@ struct State {
        cereal::make_nvp("last_event_age", MillisecondIntervalAsString(now_ms - last_event_ms)),
        cereal::make_nvp("last_event_age_ms", now_ms - last_event_ms),
        CEREAL_NVP(total_events),
-       CEREAL_NVP(total_ticks));
+       CEREAL_NVP(total_ticks),
+       CEREAL_NVP(last_stream_entry_index));
   }
 };
 
@@ -76,10 +78,10 @@ typedef sherlock::StreamInstance<EID, sherlock::DEFAULT_PERSISTENCE_LAYER, brick
 
 // `ENTRY_TYPE` should have a two-parameter constructor, from { `timestamp`, `std::move(event)` }.
 template <typename HTTP_BODY_BASE_TYPE, typename ENTRY_TYPE, typename YODA>
-void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw,
-                                                                YODA& db,
-                                                                int port = 0,
-                                                                const std::string& route = "") {
+size_t BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw,
+                                                                  YODA& db,
+                                                                  int port = 0,
+                                                                  const std::string& route = "") {
   // Maintain and report the state.
   bricks::WaitableAtomic<State> state;
   if (port) {
@@ -124,7 +126,11 @@ void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw
     }
 
     // Always publish to the raw stream, be it the event or the tick.
-    raw.Publish(eid);
+    const size_t stream_entry_index = raw.Publish(eid);
+    state.MutableUse([&stream_entry_index](State& s) {
+      assert(s.last_stream_entry_index == static_cast<size_t>(-1) || stream_entry_index > s.last_stream_entry_index);
+      s.last_stream_entry_index = stream_entry_index;
+    });
   };
 
   // Parse log events as JSON from standard input until EOF.
@@ -132,6 +138,9 @@ void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw
   LogEntry log_entry;
   std::unique_ptr<HTTP_BODY_BASE_TYPE> log_event;
   while (std::getline(std::cin, log_entry_as_string)) {
+    if (log_entry_as_string == "STOP") {
+      break;
+    }
     try {
       ParseJSON(log_entry_as_string, log_entry);
       const uint64_t timestamp = log_entry.t;
@@ -149,6 +158,8 @@ void BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& raw
       // TODO(dkorolev): Error logging and stats over sliding windows.
     }
   }
+
+  return state.ImmutableScopedAccessor()->last_stream_entry_index;
 }
 
 #endif  // STDIN_PARSE_H

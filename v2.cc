@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include "stdin_parse.h"
 #include "insights.h"
+#include "cubes.h"
 
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/strings/util.h"
@@ -42,6 +43,7 @@ SOFTWARE.
 DEFINE_int32(port, 3000, "Port to spawn the dashboard on.");
 DEFINE_string(route, "/", "The route to serve the dashboard on.");
 DEFINE_string(output_uri_prefix, "http://localhost", "The prefix for the URI-s output by the server.");
+DEFINE_bool(enable_graceful_shutdown, false, "Set to true if the binary is only spawned to generate cube/insights data.");
 
 using bricks::strings::Printf;
 using bricks::strings::ToLower;
@@ -382,6 +384,92 @@ struct Splitter {
                      },
                      std::move(r));
     });
+
+    // Export data for cubes generation.
+    HTTP(FLAGS_port).Register(FLAGS_route + "c", [this, &db](Request r) {
+      db.Transaction(
+          [this](typename DB::T_DATA data) {
+            CubeGeneratorInput payload;
+            auto& dimensions = payload.space.dimensions;
+            auto& sessions = payload.sessions;
+
+            // map<FEATURE, map<FEATURE_COUNT_IN_SESSION, NUMBER_OF_SESSION_CONTAINING_THIS_COUNT>>
+            std::map<std::string, std::map<size_t, size_t>> feature_stats;
+
+            // Populate all the sessions.
+            const auto& accessor = yoda::Matrix<AggregatedSessionInfo>::Accessor(data);
+            for (const auto& sessions_per_group : accessor.Cols()) {
+              for (const auto& individual_session : sessions_per_group) {
+                sessions.resize(sessions.size() + 1);
+                CubeGeneratorInput::Session& output_session = sessions.back();
+                output_session.id = individual_session.sid;
+                // Dedicated handling for the "number of seconds" dimension.
+                output_session.feature_count[TIME_DIMENSION_NAME] = individual_session.number_of_seconds;
+                ++feature_stats[TIME_DIMENSION_NAME][individual_session.number_of_seconds];
+                // Generic handling for all tracked dimensions.
+                for (const auto& feature_counter : individual_session.counters) {
+                  const std::string& feature = feature_counter.first;
+                  output_session.feature_count[feature] = feature_counter.second;
+                  ++feature_stats[feature][feature_counter.second];
+                }
+              }
+            }
+
+            // Put `Session Length` and `Device` dimensions first.
+            const std::vector<size_t> second_marks({5, 10, 15, 30, 60, 120, 300});
+            dimensions.emplace_back(TIME_DIMENSION_NAME);
+            Dimension& time_dimension = dimensions.back();
+            assert(second_marks.size() > 1u);
+            for (size_t i = 0; i < second_marks.size() - 1u; ++i) {
+              const size_t a = second_marks[i];
+              const size_t b = (i != second_marks.size() - 2u) ? second_marks[i + 1] - 1u : second_marks[i + 1];
+              if (i == 0) {
+                Bin first_bin("< " + std::to_string(a), a, Bin::RangeType::LESS);
+                time_dimension.bins.push_back(first_bin);
+              }
+              Bin bin_range(
+                  std::to_string(a) + " - " + std::to_string(b), a, b, Bin::RangeType::INTERVAL);
+              time_dimension.bins.push_back(bin_range);
+              if (i == second_marks.size() - 2u) {
+                Bin last_bin("> " + std::to_string(b), b, Bin::RangeType::GREATER);
+                time_dimension.bins.push_back(last_bin);
+              }
+            }
+            dimensions.emplace_back(DEVICE_DIMENSION_NAME);
+            dimensions.back().bins.emplace_back(DEVICE_UNSPECIFIED_BIN_NAME);
+
+            // Fill dimensions info in the response.
+            for (const auto& cit : feature_stats) {
+              const std::string feature = cit.first;
+
+              const auto dim_bin = payload.space.SplitFeatureIntoDimensionAndBinNames(feature);
+              if (dim_bin.first.empty()) {
+                // Skip filtered out features.
+                continue;
+              }
+
+              Dimension* dim_in_space = payload.space.DimensionByName(dim_bin.first);
+              if (dim_bin.second.empty()) {
+                assert(!dim_in_space);
+                Dimension dim(dim_bin.first);
+                dim.bins.emplace_back(NONE_BIN_NAME);
+                dim.SmartCreateBins(cit.second);
+                dimensions.push_back(dim);
+              } else {
+                if (!dim_in_space) {
+                  Dimension dim(dim_bin.first);
+                  dimensions.push_back(dim);
+                  dim_in_space = &dimensions.back();
+                }
+                Bin bin(dim_bin.second, feature);
+                dim_in_space->AddBinIfNotExists(bin);
+              }
+            }
+
+            return payload;
+          },
+          std::move(r));
+    });
   }
 
   void RealEvent(EID eid, const MidichloriansEventWithTimestamp& event, typename DB::T_DATA& data) {
@@ -390,7 +478,7 @@ struct Splitter {
     assert(e);
 
     // Start / update / end active sessions.
-    const std::string& cid = e->client_id;
+    const std::string& cid = e->device_id;
     if (!cid.empty()) {
       // Keep track of events per group.
       const std::string gid = "CID:" + cid;
@@ -447,10 +535,11 @@ struct Splitter {
 struct Listener {
   DB& db;
   Splitter splitter;
+  std::atomic_size_t total_processed_entries;
 
-  explicit Listener(DB& db) : db(db), splitter(db) {}
+  explicit Listener(DB& db) : db(db), splitter(db), total_processed_entries(0) {}
 
-  inline bool operator()(const EID eid) {
+  inline bool operator()(const EID eid, size_t index) {
     db.Transaction(
            [this, eid](typename DB::T_DATA data) {
              // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.
@@ -468,6 +557,7 @@ struct Listener {
                splitter.TickEvent(static_cast<uint64_t>(eid) / 1000, std::ref(data));
              }
            }).Go();
+    total_processed_entries = index + 1;
     return true;
   }
 };
@@ -562,16 +652,56 @@ int main(int argc, char** argv) {
   Listener listener(db);
   auto scope = raw.SyncSubscribe(listener);
 
+  std::atomic_size_t total_stream_entries(0);
+  std::atomic_bool done_processing_stdin(false);
+  std::atomic_bool graceful_shutdown(false);
+
+  if (FLAGS_enable_graceful_shutdown) {
+    HTTP(FLAGS_port).Register(FLAGS_route + "graceful_wait", [&done_processing_stdin, &total_stream_entries, &listener](Request r) {
+      while (!done_processing_stdin) {
+        const size_t total = total_stream_entries;
+        const size_t processed = listener.total_processed_entries;
+        if (total) {
+          std::cerr << processed * 100 / total << "% (" << processed << " / " << total << ") entries processed.\n";
+        } else {
+          std::cerr << "Not done receiving entries from standard input.\n";
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      }
+      std::cerr << "All entries from standard input have been successfully processed.\n";
+      r("Completed.\n");
+    });
+    HTTP(FLAGS_port).Register(FLAGS_route + "graceful_shutdown", [&graceful_shutdown](Request r) {
+      graceful_shutdown = true;
+      r("Bye.\n");
+    });
+  }
+
+
   // Read from standard input forever.
   // The rest of the logic is handled asynchronously, by the corresponding listeners.
-  BlockingParseLogEventsAndInjectIdleEventsFromStandardInput<MidichloriansEvent,
-                                                             MidichloriansEventWithTimestamp>(
-      raw, db, FLAGS_port, FLAGS_route);
+  total_stream_entries =
+    BlockingParseLogEventsAndInjectIdleEventsFromStandardInput<MidichloriansEvent,
+                                                               MidichloriansEventWithTimestamp>(
+      raw, db, FLAGS_port, FLAGS_route) + 1;
 
-  // Production code should never reach this point.
-  // For non-production code, print an explanatory message before terminating.
-  // Not terminating would be a bad idea, since it sure will break production one day. -- D.K.
-  std::cerr << "Note: This binary is designed to run forever, and/or be restarted in an infinite loop.\n";
-  std::cerr << "In test mode, to run against a small subset of data, consider `tail -f`-ing the input file.\n";
-  return -1;
+  if (FLAGS_enable_graceful_shutdown) {
+    while (listener.total_processed_entries != total_stream_entries) {
+      ;  // Spin lock.
+    }
+    done_processing_stdin = true;
+    scope.Join();
+    while (!graceful_shutdown) {  // `curl` "/graceful_shutdown" to stop.
+      ;  // Spin lock.
+    }
+    return 0;
+  } else {
+    // Production code should never reach this point.
+    // For non-production code, print an explanatory message before terminating.
+    // Not terminating would be a bad idea, since it sure will break production one day. -- D.K.
+    std::cerr << "Note: This binary is designed to run forever, and/or be restarted in an infinite loop.\n";
+    std::cerr << "In test mode, to run against a small subset of data, consider `tail -f`-ing the input file,\n";
+    std::cerr << "or using the `--graceful_shutdown=true` mode, see `./run.sh` for more details.\n";
+    return -1;
+  }
 }
