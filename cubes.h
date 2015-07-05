@@ -27,8 +27,6 @@ SOFTWARE.
 #include <vector>
 #include <map>
 
-#include "../Current/Bricks/strings/join.h"
-
 const std::string TIME_DIMENSION_NAME = "Session length, seconds";
 const std::string DEVICE_DIMENSION_NAME = "Device";
 const std::string DEVICE_UNSPECIFIED_BIN_NAME = "Unspecified";

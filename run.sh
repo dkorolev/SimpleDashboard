@@ -14,7 +14,7 @@ if [ $# -ge 1 ] ; then
      curl -s localhost:$PORT/graceful_shutdown) \
     | ./build/v2 --port=$PORT --enable_graceful_shutdown=true && \
   build/gen_cube --input=build/c.json --output=build/c.tsv && \
-  (cd ../Current/CompactTSV ; make .current .current/pack) && \
+  (cd ../Current/CompactTSV ; make .current/pack) && \
   cat build/c.tsv | ../Current/CompactTSV/.current/pack >build/c.ctsv && \
   (cd ../BT ; make build build/histogram_cube_browser) && \
   SAVE_PWD=$PWD && \

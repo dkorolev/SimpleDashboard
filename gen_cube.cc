@@ -42,7 +42,9 @@ struct Cell {
   Cell() = delete;
   Cell(const Space& space) {
     for (const auto& dim : space.dimensions) {
-      coordinates.emplace_back(dim.name, std::string(dim.name) == DEVICE_DIMENSION_NAME ? DEVICE_UNSPECIFIED_BIN_NAME : NONE_BIN_NAME);
+      coordinates.emplace_back(
+          dim.name,
+          std::string(dim.name) == DEVICE_DIMENSION_NAME ? DEVICE_UNSPECIFIED_BIN_NAME : NONE_BIN_NAME);
     }
   }
 
@@ -104,7 +106,8 @@ int main(int argc, char** argv) {
         assert(dim);
         bin_name = dim->BinNameByValue(feature_counter.second);
         if (bin_name.empty()) {
-          std::cerr << "FATAL ERROR: No bin assignment for " << feature_counter.second << " within " << dim->name << std::endl;
+          std::cerr << "FATAL ERROR: No bin assignment for " << feature_counter.second << " within "
+                    << dim->name << std::endl;
           std::cerr << JSON(*dim) << std::endl;
           std::exit(-1);
         }

@@ -128,7 +128,8 @@ size_t BlockingParseLogEventsAndInjectIdleEventsFromStandardInput(STREAM_TYPE& r
     // Always publish to the raw stream, be it the event or the tick.
     const size_t stream_entry_index = raw.Publish(eid);
     state.MutableUse([&stream_entry_index](State& s) {
-      assert(s.last_stream_entry_index == static_cast<size_t>(-1) || stream_entry_index > s.last_stream_entry_index);
+      assert(s.last_stream_entry_index == static_cast<size_t>(-1) ||
+             stream_entry_index > s.last_stream_entry_index);
       s.last_stream_entry_index = stream_entry_index;
     });
   };
