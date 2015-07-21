@@ -14,17 +14,23 @@ struct MidichloriansEventPreprocessor {
           iOSFocusEvent,
           iOSGenericEvent> T_SUPPORTED_TYPES;
 
-  void operator()(const iOSDeviceInfo& source_event, T_RETURN_TYPE& result) {
-    DeviceInfoEvent* device_info_event = new DeviceInfoEvent;
-    ExtractBaseEventFields(source_event, *device_info_event);
-    device_info_event->model = source_event.info.at("deviceModel");
-    device_info_event->name = source_event.info.at("deviceName");
-    result.reset(device_info_event);
+  template<typename F>
+  void operator()(const iOSDeviceInfo& source_event, uint64_t t, F&& f) {
+    DeviceInfoEvent device_info_event;
+    device_info_event.t = t;
+    ExtractBaseEventFields(source_event, device_info_event);
+    device_info_event.model = source_event.info.at("deviceModel");
+    device_info_event.name = source_event.info.at("deviceName");
+    f(std::move(device_info_event));
   }
-  void operator()(const iOSAppLaunchEvent& source_event, T_RETURN_TYPE& result) {}
-  void operator()(const iOSFirstLaunchEvent& source_event, T_RETURN_TYPE& result) {}
-  void operator()(const iOSFocusEvent& source_event, T_RETURN_TYPE& result) {}
-  void operator()(const iOSGenericEvent& source_event, T_RETURN_TYPE& result) {}
+  template<typename F>
+  void operator()(const iOSAppLaunchEvent&, uint64_t, F&&) {}
+  template<typename F>
+  void operator()(const iOSFirstLaunchEvent&, uint64_t, F&&) {}
+  template<typename F>
+  void operator()(const iOSFocusEvent&, uint64_t, F&&) {}
+  template<typename F>
+  void operator()(const iOSGenericEvent&, uint64_t, F&&) {}
 
  private:
   void ExtractBaseEventFields(const MidichloriansEvent& source_event, BASE_EVENT& dest_event) {
@@ -37,19 +43,17 @@ template <typename BASE_EVENT>
 struct EventPreprocessor {
   typedef BASE_EVENT T_BASE_EVENT;
 
-  std::unique_ptr<BASE_EVENT> ProcessLogEntry(LogEntry& log_entry) {
-    std::unique_ptr<BASE_EVENT> result;
+  template<typename F>
+  void DispatchLogEntry(const LogEntry& log_entry, F&& f) {
     if (log_entry.m != "TICK") {
-      std::unique_ptr<MidichloriansEvent> midichlorians_event;
       try {
+        std::unique_ptr<MidichloriansEvent> midichlorians_event;
         ParseJSON(log_entry.b, midichlorians_event);
+        bricks::metaprogramming::RTTIDynamicCall<typename MidichloriansEventPreprocessor<BASE_EVENT>::T_SUPPORTED_TYPES>(
+           midichlorians_event, midichlorians_preprocessor, log_entry.t, std::forward<F>(f));
       } catch (const bricks::ParseJSONException&) {
         std::cerr << "Unable to parse LogEvent body." << std::endl;
       }
-      bricks::metaprogramming::RTTIDynamicCall<typename MidichloriansEventPreprocessor<BASE_EVENT>::T_SUPPORTED_TYPES>(
-         midichlorians_event, midichlorians_preprocessor, result);
-      result->t = log_entry.t;
-      return result;
     }
   }
  private:
