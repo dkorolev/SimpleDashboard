@@ -3,17 +3,19 @@
 struct CTFOBaseEvent : yoda::Padawan {
   uint64_t t;
   std::string device_id;
+  std::string client_id;
 
   template <typename A>
   void serialize(A& ar) {
     Padawan::serialize(ar);
-    ar(CEREAL_NVP(t), CEREAL_NVP(device_id));
+    ar(CEREAL_NVP(t), CEREAL_NVP(device_id), CEREAL_NVP(client_id));
   }
 };
 
 struct LaunchEvent : CTFOBaseEvent {
-  bool first;
-  explicit LaunchEvent(bool first = false) : first(first) {}
+  bool first = false;
+  LaunchEvent() = default;
+  explicit LaunchEvent(bool first) : first(first) {}
 
   template <typename A>
   void serialize(A& ar) {
@@ -23,7 +25,8 @@ struct LaunchEvent : CTFOBaseEvent {
 };
 
 struct FocusEvent : CTFOBaseEvent {
-  bool gained_focus;
+  bool gained_focus = false;
+  FocusEvent() = default;
   explicit FocusEvent(bool gained_focus) : gained_focus(gained_focus) {}
 
   template <typename A>
