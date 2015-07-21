@@ -29,6 +29,7 @@ SOFTWARE.
 #include "stdin_parse.h"
 #include "insights.h"
 #include "cubes.h"
+#include "profiler.h"
 
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/strings/util.h"
@@ -47,6 +48,10 @@ DEFINE_string(output_uri_prefix, "http://localhost", "The prefix for the URI-s o
 DEFINE_bool(enable_graceful_shutdown,
             false,
             "Set to true if the binary is only spawned to generate cube/insights data.");
+
+#ifdef PROFILER_ENABLED
+DEFINE_string(profiler_route, "/profile", "The route to expose the performance profile on.");
+#endif
 
 using bricks::strings::Printf;
 using bricks::strings::ToLower;
@@ -229,6 +234,7 @@ struct Splitter {
   struct CurrentSessions {
     std::map<std::string, AggregatedSessionInfo> map;
     void EndTimedOutSessions(const uint64_t ms, typename DB::T_DATA& data) {
+      PROFILER_SCOPE("CurrentSessions::EndTimedOutSessions()");
       std::vector<std::string> sessions_to_end;
       for (const auto cit : map) {
         if (ms - cit.second.ms_last > 10 * 60 * 1000) {
@@ -475,6 +481,8 @@ struct Splitter {
   }
 
   void RealEvent(EID eid, const MidichloriansEventWithTimestamp& event, typename DB::T_DATA& data) {
+    PROFILER_SCOPE("Splitter::RealEvent()");
+
     // Only real events, not ticks with empty `event.e`, should make it here.
     const auto& e = event.e;
     assert(e);
@@ -484,45 +492,55 @@ struct Splitter {
     if (!cid.empty()) {
       // Keep track of events per group.
       const std::string gid = "CID:" + cid;
-      data.Add(EventsByGID(gid, static_cast<uint64_t>(eid)));
+      {
+        PROFILER_SCOPE("`data.Add()`.");
+        data.Add(EventsByGID(gid, static_cast<uint64_t>(eid)));
+      }
 
       // Keep track of current and finalized sessions.
       // TODO(dkorolev): This should be a listener to support a chain of streams, not a WaitableAtomic<>.
-      current_sessions.MutableUse([this, eid, &gid, &e, &event, &data](CurrentSessions& current) {
-        const uint64_t ms = event.ms;
-        current.EndTimedOutSessions(ms, data);
-        auto& s = current.map[gid];
-        if (s.gid.empty()) {
-          // A new session is to be created.
-          static int index = 100000;
-          s.sid = Printf("K%d", ++index);
-          s.gid = gid;
-          s.ms_first = ms;
-        }
-        s.ms_last = ms;
-        const std::string counter_name = event.CanonicalDescription();
-        if (!counter_name.empty()) {
-          ++s.counters[counter_name];
-        }
-        s.events.push_back(static_cast<uint64_t>(eid));
-      });
+      {
+        PROFILER_SCOPE("`current_sessions.MutableUse()`.");
+        current_sessions.MutableUse([this, eid, &gid, &e, &event, &data](CurrentSessions& current) {
+          const uint64_t ms = event.ms;
+          current.EndTimedOutSessions(ms, data);
+          auto& s = current.map[gid];
+          if (s.gid.empty()) {
+            // A new session is to be created.
+            static int index = 100000;
+            s.sid = Printf("K%d", ++index);
+            s.gid = gid;
+            s.ms_first = ms;
+          }
+          s.ms_last = ms;
+          const std::string counter_name = event.CanonicalDescription();
+          if (!counter_name.empty()) {
+            ++s.counters[counter_name];
+          }
+          s.events.push_back(static_cast<uint64_t>(eid));
+        });
+      }
 
       // Keep events searchable.
-      Singleton<WaitableAtomic<SearchIndex>>().MutableUse([this, eid, &gid, &e, &event](SearchIndex& index) {
-        // Landing pages for searched are grouped event URI and individual event URI.
-        std::vector<std::string> values = {"/g?gid=" + gid, Printf("/e?eid=%llu", static_cast<uint64_t>(eid))};
-        for (const auto& rhs : values) {
-          // Populate each term.
-          RTTIDynamicCall<typename SearchIndex::Populator::T_TYPES>(*e.get(),  // Yes, `const unique_ptr<>`.
-                                                                    SearchIndex::Populator(index, rhs));
-          index.AddToIndex(gid, rhs);
-          index.AddToIndex(ToString(event.ms), rhs);
-          // Make keys and parts of keys themselves searchable.
-          for (const auto& lhs : values) {
-            index.AddToIndex(lhs, rhs);
+      {
+        PROFILER_SCOPE("`Singleton<WaitableAtomic<SearchIndex>>().MutableUse()`.");
+        Singleton<WaitableAtomic<SearchIndex>>().MutableUse([this, eid, &gid, &e, &event](SearchIndex& index) {
+          // Landing pages for searched are grouped event URI and individual event URI.
+          std::vector<std::string> values = {"/g?gid=" + gid,
+                                             Printf("/e?eid=%llu", static_cast<uint64_t>(eid))};
+          for (const auto& rhs : values) {
+            // Populate each term.
+            RTTIDynamicCall<typename SearchIndex::Populator::T_TYPES>(*e.get(),  // Yes, `const unique_ptr<>`.
+                                                                      SearchIndex::Populator(index, rhs));
+            index.AddToIndex(gid, rhs);
+            index.AddToIndex(ToString(event.ms), rhs);
+            // Make keys and parts of keys themselves searchable.
+            for (const auto& lhs : values) {
+              index.AddToIndex(lhs, rhs);
+            }
           }
-        }
-      });
+        });
+      }
     }
   }
 
@@ -542,24 +560,36 @@ struct Listener {
   explicit Listener(DB& db) : db(db), splitter(db), total_processed_entries(0) {}
 
   inline bool operator()(const EID eid, size_t index) {
-    db.Transaction(
-           [this, eid](typename DB::T_DATA data) {
-             // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.
-             const auto entry = yoda::Dictionary<MidichloriansEventWithTimestamp>::Accessor(data).Get(eid);
-             if (entry) {
-               // Found in the DB: we have a log-entry-based event.
-               splitter.RealEvent(eid, static_cast<const MidichloriansEventWithTimestamp&>(entry), data);
-             } else {
-               // Not found in the DB: we have a tick event.
-               // Notify each active session whether it's interested in ending itself at this moment,
-               // since some session types do use the "idle time" signal.
-               // Also, this results in the output of the "current" sessions to actually be Current!
-               uint64_t tmp = static_cast<uint64_t>(eid);
-               assert(tmp % 1000 == 999);
-               splitter.TickEvent(static_cast<uint64_t>(eid) / 1000, std::ref(data));
-             }
-           }).Go();
-    total_processed_entries = index + 1;
+    PROFILER_SCOPE("Listener::operator()");
+    // auto transaction =
+    db.Transaction([this, eid, index](typename DB::T_DATA data) {
+      // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.
+      PROFILER_SCOPE("db.Transaction()`.");
+      const auto entry = yoda::Dictionary<MidichloriansEventWithTimestamp>::Accessor(data).Get(eid);
+      if (entry) {
+        // Found in the DB: we have a log-entry-based event.
+        PROFILER_SCOPE("Call `RealEvent()`.");
+        splitter.RealEvent(eid, static_cast<const MidichloriansEventWithTimestamp&>(entry), data);
+      } else {
+        PROFILER_SCOPE("Call `TickEvent()`.");
+        // Not found in the DB: we have a tick event.
+        // Notify each active session whether it's interested in ending itself at this moment,
+        // since some session types do use the "idle time" signal.
+        // Also, this results in the output of the "current" sessions to actually be Current!
+        uint64_t tmp = static_cast<uint64_t>(eid);
+        assert(tmp % 1000 == 999);
+        splitter.TickEvent(static_cast<uint64_t>(eid) / 1000, std::ref(data));
+      }
+      total_processed_entries = index + 1;
+    });
+    // TODO(dkorolev): Add extra logic to ensure this is safe.
+    // Caveat: `Listener` gets deleted before its transactions are complete.
+    // Obvious solution: Wrap `total_processed_entries` into a `shared_ptr`.
+    // {
+    //   PROFILER_SCOPE("transaction.Go()");
+    //   transaction.Go();
+    // }
+    // total_processed_entries = index + 1;
     return true;
   }
 };
@@ -628,6 +658,10 @@ int main(int argc, char** argv) {
     return -1;
   }
 
+#ifdef PROFILER_ENABLED
+  PROFILER_HTTP_ROUTE(FLAGS_port, FLAGS_profiler_route);
+#endif
+
   HTTP(FLAGS_port).Register(FLAGS_route, [](Request r) {
     TopLevelResponse e;
     e.Prepare(r.url.query["q"]);
@@ -683,16 +717,21 @@ int main(int argc, char** argv) {
 
   // Read from standard input forever.
   // The rest of the logic is handled asynchronously, by the corresponding listeners.
-  total_stream_entries =
-      BlockingParseLogEventsAndInjectIdleEventsFromStandardInput<MidichloriansEvent,
-                                                                 MidichloriansEventWithTimestamp>(
-          raw, db, FLAGS_port, FLAGS_route) +
-      1;
+  {
+    PROFILER_SCOPE("BlockingParseLogEventsAndInjectIdleEventsFromStandardInput");
+    total_stream_entries =
+        BlockingParseLogEventsAndInjectIdleEventsFromStandardInput<MidichloriansEvent,
+                                                                   MidichloriansEventWithTimestamp>(
+            raw, db, FLAGS_port, FLAGS_route) +
+        1;
+  }
 
   if (FLAGS_enable_graceful_shutdown) {
+    PROFILER_SCOPE("GracefulShutdown");
     while (listener.total_processed_entries != total_stream_entries) {
       ;  // Spin lock.
     }
+    PROFILER_SCOPE("`done_processing_stdin = true`.");
     done_processing_stdin = true;
     scope.Join();
     // `curl` "/graceful_shutdown" to stop.
