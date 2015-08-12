@@ -29,7 +29,8 @@ SOFTWARE.
 #include "stdin_parse.h"
 #include "insights.h"
 #include "cubes.h"
-#include "profiler.h"
+
+#include "../Current/Profiler/profiler.h"
 
 #include "../Current/Bricks/dflags/dflags.h"
 #include "../Current/Bricks/strings/util.h"
@@ -564,14 +565,14 @@ struct Listener {
     // auto transaction =
     db.Transaction([this, eid, index](typename DB::T_DATA data) {
       // Yep, it's an extra, synchronous, lookup. But this solution is cleaner data-wise.
-      PROFILER_SCOPE("db.Transaction()`.");
+      PROFILER_SCOPE("`db.Transaction()`");
       const auto entry = yoda::Dictionary<MidichloriansEventWithTimestamp>::Accessor(data).Get(eid);
       if (entry) {
         // Found in the DB: we have a log-entry-based event.
-        PROFILER_SCOPE("Call `RealEvent()`.");
+        PROFILER_SCOPE("Call `RealEvent()`");
         splitter.RealEvent(eid, static_cast<const MidichloriansEventWithTimestamp&>(entry), data);
       } else {
-        PROFILER_SCOPE("Call `TickEvent()`.");
+        PROFILER_SCOPE("Call `TickEvent()`");
         // Not found in the DB: we have a tick event.
         // Notify each active session whether it's interested in ending itself at this moment,
         // since some session types do use the "idle time" signal.
